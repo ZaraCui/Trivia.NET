@@ -1,33 +1,45 @@
-import random
+kimport random
 
+# Mathematics: 2–5 operands, + / - more common than * /
 def generate_mathematics_question() -> str:
-    num_count = random.randint(2, 5)  # Between 2 and 5 numbers
-    numbers = [random.randint(1, 10) for _ in range(num_count)]
-    operators = random.choices(["+", "-"], k=num_count - 1)
-    expression = " ".join(f"{numbers[i]} {operators[i] if i < len(operators) else ''}" for i in range(num_count))
-    return expression.strip()
+    n = random.randint(2, 5)
+    nums = [random.randint(1, 10) for _ in range(n)]
+    ops_pool = ["+"] * 4 + ["-"] * 4 + ["*"] + ["/"]  # skewed to +/-
+    ops = random.choices(ops_pool, k=n - 1)
+    parts = []
+    for i in range(n - 1):
+        parts.append(str(nums[i]))
+        parts.append(ops[i])
+    parts.append(str(nums[-1]))
+    return " ".join(parts)
 
-def int_to_roman(n: int) -> str:
-    roman_numerals = [
-        ("I", 1), ("IV", 4), ("V", 5), ("IX", 9), ("X", 10), ("XL", 40), 
-        ("L", 50), ("XC", 90), ("C", 100), ("CD", 400), ("D", 500), ("CM", 900), ("M", 1000)
+# Roman numerals: return the roman literal (server expects a "short_question")
+def _int_to_roman(value: int) -> str:
+    table = [
+        ("M", 1000), ("CM", 900), ("D", 500), ("CD", 400),
+        ("C", 100), ("XC", 90), ("L", 50), ("XL", 40),
+        ("X", 10), ("IX", 9), ("V", 5), ("IV", 4), ("I", 1),
     ]
-    result = []
-    for symbol, value in reversed(roman_numerals):
-        while n >= value:
-            result.append(symbol)
-            n -= value
-    return ''.join(result)
+    out = []
+    n = value
+    for sym, val in table:
+        while n >= val:
+            out.append(sym)
+            n -= val
+    return "".join(out)
 
 def generate_roman_numerals_question() -> str:
-    n = random.randint(1, 3999)
-    roman_numerals = int_to_roman(n)
-    return f"What is the decimal value of {roman_numerals}?"
+    return _int_to_roman(random.randint(1, 3999))
+
+# Subnet helpers
+def _rand_cidr() -> str:
+    return f"192.168.{random.randint(0,255)}.{random.randint(0,255)}/{random.choice([24,25,26,27,28,29,30])}"
 
 def generate_subnet_usable_question() -> str:
-    subnet = f"192.168.{random.randint(0, 255)}.{random.randint(0, 255)}/24"
-    return f"How many usable addresses are there in the subnet {subnet}?"
+    # e.g. "192.168.1.0/24"
+    return _rand_cidr()
 
 def generate_subnet_net_broadcast_question() -> str:
-    subnet = f"192.168.{random.randint(0, 255)}.{random.randint(0, 255)}/24"
-    return f"What are the network and broadcast addresses of the subnet {subnet}?"
+    # e.g. "192.168.1.37/24"
+    return _rand_cidr()
+
