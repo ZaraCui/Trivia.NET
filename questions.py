@@ -1,45 +1,54 @@
-kimport random
+import random
 
-# Mathematics: 2–5 operands, + / - more common than * /
 def generate_mathematics_question() -> str:
-    n = random.randint(2, 5)
-    nums = [random.randint(1, 10) for _ in range(n)]
-    ops_pool = ["+"] * 4 + ["-"] * 4 + ["*"] + ["/"]  # skewed to +/-
-    ops = random.choices(ops_pool, k=n - 1)
-    parts = []
-    for i in range(n - 1):
-        parts.append(str(nums[i]))
-        parts.append(ops[i])
-    parts.append(str(nums[-1]))
-    return " ".join(parts)
+    """
+    Generate a random math expression with 2–5 integers (1–10),
+    using mostly + and -, sometimes * or /.
+    Example: '3 + 5 - 2 * 4'
+    """
+    num_count = random.randint(2, 5)
+    numbers = [str(random.randint(1, 10)) for _ in range(num_count)]
+    # Weighted operator selection
+    all_ops = ["+"] * 4 + ["-"] * 4 + ["*"] * 1 + ["/"] * 1
+    operators = random.choices(all_ops, k=num_count - 1)
+    expr_parts = []
+    for i in range(num_count):
+        expr_parts.append(numbers[i])
+        if i < len(operators):
+            expr_parts.append(operators[i])
+    return " ".join(expr_parts)
 
-# Roman numerals: return the roman literal (server expects a "short_question")
-def _int_to_roman(value: int) -> str:
-    table = [
-        ("M", 1000), ("CM", 900), ("D", 500), ("CD", 400),
-        ("C", 100), ("XC", 90), ("L", 50), ("XL", 40),
-        ("X", 10), ("IX", 9), ("V", 5), ("IV", 4), ("I", 1),
+
+def int_to_roman(n: int) -> str:
+    """Convert integer 1–3999 to Roman numeral."""
+    roman_numerals = [
+        ("I", 1), ("IV", 4), ("V", 5), ("IX", 9),
+        ("X", 10), ("XL", 40), ("L", 50), ("XC", 90),
+        ("C", 100), ("CD", 400), ("D", 500),
+        ("CM", 900), ("M", 1000)
     ]
-    out = []
-    n = value
-    for sym, val in table:
-        while n >= val:
-            out.append(sym)
-            n -= val
-    return "".join(out)
+    result = []
+    for symbol, value in reversed(roman_numerals):
+        while n >= value:
+            result.append(symbol)
+            n -= value
+    return ''.join(result)
+
 
 def generate_roman_numerals_question() -> str:
-    return _int_to_roman(random.randint(1, 3999))
+    """Generate a Roman numeral conversion question."""
+    n = random.randint(1, 3999)
+    roman_numeral = int_to_roman(n)
+    return f"What is the decimal value of {roman_numeral}?"
 
-# Subnet helpers
-def _rand_cidr() -> str:
-    return f"192.168.{random.randint(0,255)}.{random.randint(0,255)}/{random.choice([24,25,26,27,28,29,30])}"
 
 def generate_subnet_usable_question() -> str:
-    # e.g. "192.168.1.0/24"
-    return _rand_cidr()
+    """Generate a CIDR subnet question for usable IPs."""
+    subnet = f"192.168.{random.randint(0, 255)}.{random.randint(0, 255)}/24"
+    return subnet
+
 
 def generate_subnet_net_broadcast_question() -> str:
-    # e.g. "192.168.1.37/24"
-    return _rand_cidr()
-
+    """Generate a CIDR subnet question for network/broadcast addresses."""
+    subnet = f"192.168.{random.randint(0, 255)}.{random.randint(0, 255)}/24"
+    return subnet
