@@ -1,0 +1,19 @@
+{
+    "port": 5001,
+    "players": 1,
+    "question_word": "Question",
+    "question_seconds": 4,
+    "question_interval_seconds": 0.5,
+    "question_formats": {
+        "Mathematics": "What is {}?",
+        "Roman Numerals": "What is the decimal value of {}?",
+        "Usable IP Addresses of a Subnet": "{}",
+        "Network and Broadcast Address of a Subnet": "{}"
+    },
+    "question_types": [
+        "Mathematics"
+    ],
+    "ready_info": "Get ready: 1 question, 4 seconds each.",
+    "correct_answer": "Correct!",
+    "incorrect_answer": "Incorrect."
+}
