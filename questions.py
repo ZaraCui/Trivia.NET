@@ -52,11 +52,3 @@ def generate_subnet_net_broadcast_question() -> str:
     """Generate a CIDR subnet question for network/broadcast addresses."""
     subnet = f"192.168.{random.randint(0, 255)}.{random.randint(0, 255)}/24"
     return subnet
-
-def generate_usable_addresses_question() -> str:
-    """Alias/wrapper for autograder: usable IPs question (CIDR string only)."""
-    return generate_subnet_usable_question()
-
-def generate_network_broadcast_question() -> str:
-    """Alias/wrapper for autograder: network & broadcast (CIDR string only)."""
-    return generate_subnet_net_broadcast_question()
