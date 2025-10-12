@@ -1,6 +1,5 @@
 # client.py — robust line-based / bare-JSON client
 
-import argparse
 import json
 import socket
 import sys
@@ -9,24 +8,28 @@ from pathlib import Path
 
 # ----------------- configuration handling -----------------
 
+def die(msg: str) -> None:
+    """Print error message to stderr only, then exit."""
+    print(msg, file=sys.stderr, flush=True)
+    sys.exit(1)
+
+
 def parse_argv_for_config(argv: list[str]) -> str | None:
     """
     Parse command-line arguments for the configuration file.
     Ed tests expect:
-      - Missing or incomplete args → print 'Configuration not provided' to stdout.
+      - Missing or incomplete args → stderr: 'Configuration not provided'
       - Existing path args → no print, continue normally.
     """
-    prog = Path(argv[0]).name  # e.g., client.py or server.py
+    prog = Path(argv[0]).name
 
     # Case 1: no args
     if len(argv) == 1:
-        print(f"{prog}: Configuration not provided")
-        sys.exit(1)
+        die(f"{prog}: Configuration not provided")
 
     # Case 2: only '--config' with no path
     if len(argv) == 2 and argv[1] == "--config":
-        print(f"{prog}: Configuration not provided")
-        sys.exit(1)
+        die(f"{prog}: Configuration not provided")
 
     # Case 3: '--config <file>'
     if len(argv) >= 3 and argv[1] == "--config":
@@ -37,27 +40,18 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
         return argv[1]
 
     # Case 5: invalid usage
-    print(f"{prog}: Configuration not provided")
-    sys.exit(1)
-
-
-def die(msg: str) -> None:
-    """
-    Print the error message to both stdout and stderr, then exit.
-    This hybrid approach passes both stdout-based and stderr-based Ed tests.
-    """
-    print(msg)
-    print(msg, file=sys.stderr)
-    sys.exit(1)
+    die(f"{prog}: Configuration not provided")
 
 
 def load_config(path_str: str) -> dict:
     """Load the client configuration JSON file or exit with the required message."""
     if not path_str:
         die("client.py: Configuration not provided")
+
     p = Path(path_str)
     if not p.exists():
         die(f"client.py: File {path_str} does not exist")
+
     with p.open("r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -65,21 +59,12 @@ def load_config(path_str: str) -> dict:
 # ----------------- helpers -----------------
 
 def send_json(sock: socket.socket, obj: dict) -> None:
-    """
-    Send exactly one JSON message, newline-terminated.
-    Using '\n' as a frame delimiter prevents sticky/partial packet issues.
-    """
+    """Send exactly one JSON message, newline-terminated."""
     sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
 
 
-# === robust message reader (works with line-delimited OR bare JSON) ===
 def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
-    """
-    Return exactly one JSON object from buffer/socket if available.
-    - Prefer line-delimited JSON (split by '\n').
-    - If no newline yet but buffer is a complete JSON, parse it too.
-    - Return None if we still need more bytes.
-    """
+    """Receive exactly one JSON object (supports line-delimited or bare JSON)."""
     nl = buf.find(b"\n")
     if nl != -1:
         line = buf[:nl].strip()
@@ -98,7 +83,6 @@ def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
             return obj
         except json.JSONDecodeError:
             pass
-
     return None
 
 
@@ -126,7 +110,6 @@ _ROMAN = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
 
 def solve_math(expr: str) -> str:
-    """Evaluate +, -, *, / left-to-right (same rule as the server)."""
     tokens = expr.split()
     if not tokens:
         return "0"
@@ -148,7 +131,6 @@ def solve_math(expr: str) -> str:
 
 
 def roman_to_int(s: str) -> str:
-    """Convert a Roman numeral (1..3999) to decimal string."""
     total = 0
     i = 0
     while i < len(s):

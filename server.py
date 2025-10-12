@@ -15,12 +15,8 @@ import questions
 # ---------------------------
 
 def die(msg: str) -> None:
-    """
-    Print error message to BOTH stdout and stderr, then exit.
-    This ensures compatibility with all Ed tests.
-    """
-    print(msg)
-    print(msg, file=sys.stderr)
+    """Print error message to stderr only, then exit."""
+    print(msg, file=sys.stderr, flush=True)
     sys.exit(1)
 
 
@@ -28,20 +24,18 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
     """
     Parse command-line arguments for the configuration file.
     Ed expects:
-      - Missing/incomplete args → print "<prog>: Configuration not provided"
+      - Missing/incomplete args → stderr: "<prog>: Configuration not provided"
       - Valid args → no print, just return path.
     """
-    prog = Path(argv[0]).name  # e.g., server.py or client.py
+    prog = Path(argv[0]).name
 
     # Case 1: no args
     if len(argv) == 1:
-        print(f"{prog}: Configuration not provided")
-        sys.exit(1)
+        die(f"{prog}: Configuration not provided")
 
     # Case 2: only '--config' with no path
     if len(argv) == 2 and argv[1] == "--config":
-        print(f"{prog}: Configuration not provided")
-        sys.exit(1)
+        die(f"{prog}: Configuration not provided")
 
     # Case 3: '--config <file>'
     if len(argv) >= 3 and argv[1] == "--config":
@@ -52,8 +46,7 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
         return argv[1]
 
     # Case 5: invalid usage fallback
-    print(f"{prog}: Configuration not provided")
-    sys.exit(1)
+    die(f"{prog}: Configuration not provided")
 
 
 def load_config(path_str: str) -> dict:
@@ -68,10 +61,7 @@ def load_config(path_str: str) -> dict:
 
 
 def send_json(sock: socket.socket, obj: dict) -> None:
-    """
-    Send exactly one JSON object framed by a newline.
-    Testers/clients expect line-delimited JSON.
-    """
+    """Send exactly one JSON object framed by a newline."""
     sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
 
 
@@ -79,14 +69,7 @@ def send_json(sock: socket.socket, obj: dict) -> None:
 _buffers: dict[int, bytearray] = {}
 
 def recv_json(sock: socket.socket, timeout_sec: float | None = None) -> dict | None:
-    """
-    Receive exactly one JSON object.
-    Compatible with:
-      1) line-delimited JSON (ends with '\n')
-      2) single bare JSON object (no newline)
-    Blocks (up to timeout_sec) until a full object is available.
-    Returns None on timeout or if the peer closes before a full object arrives.
-    """
+    """Receive exactly one JSON object (line-delimited or bare JSON)."""
     fd = sock.fileno()
     buf = _buffers.setdefault(fd, bytearray())
     deadline = None if timeout_sec is None else (time.time() + timeout_sec)
