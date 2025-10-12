@@ -53,7 +53,6 @@ def send_json(sock: socket.socket, obj: dict) -> None:
     sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
 
 
-# --- Line-delimited or bare-JSON receiver (robust) ---
 # --- Line-delimited or bare-JSON receiver (robust & blocking-until-timeout) ---
 _buffers: dict[int, bytearray] = {}
 
@@ -272,18 +271,18 @@ def play_rounds(clients: list[dict], cfg: dict) -> None:
         fmt = qformats.get(qtype, "{}")
         formatted_q = fmt.format(short_q)
         # IMPORTANT: no colon after the header line
-        trivia_text = f"{qword} {idx} ({qtype})\n{formatted_q}"
+        trivia_text = f"{qword} {idx} ({qtype}):\n{formatted_q}"
 
         correct = compute_correct_answer(qtype, short_q)
 
         # Send QUESTION
         question_msg = {
             "message_type": "QUESTION",
-            "question_type": qtype,
             "trivia_question": trivia_text,
             "short_question": short_q,
             "time_limit": per_q_seconds,
         }
+
         broadcast(clients, question_msg)
 
         # Collect answers until everyone answered or time runs out
