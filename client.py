@@ -1,4 +1,4 @@
-# client.py — robust line-based / bare-JSON client
+k# client.py — robust line-based / bare-JSON client
 
 import argparse
 import json
@@ -7,26 +7,33 @@ import sys
 import os
 from pathlib import Path
 
+
 def parse_argv_for_config(argv: list[str]) -> str | None:
     """
     Parse command-line arguments for the client configuration file.
 
     Expected Ed behavior:
-      - No flag  -> print 'client.py: Configuration not provided'
-      - '--config' with no value -> print same line
-      - '--config file' or 'file' alone -> return that path
+      - python3 client.py                     → Configuration not provided
+      - python3 client.py --config            → Configuration not provided
+      - python3 client.py --config file.json  → returns file.json
+      - python3 client.py file.json           → returns file.json
     """
 
-    # Case 1: no arguments or only '--config' without a file path
-    if len(argv) == 1 or (len(argv) == 2 and argv[1] == "--config"):
+    # Case 1: no flag or missing argument
+    if len(argv) == 1:
         print("client.py: Configuration not provided")
         sys.exit(1)
 
-    # Case 2: '--config path/to/file'
+    # Case 2: only --config (no file given)
+    if len(argv) == 2 and argv[1] == "--config":
+        print("client.py: Configuration not provided")
+        sys.exit(1)
+
+    # Case 3: --config <file>
     if len(argv) >= 3 and argv[1] == "--config":
         return argv[2]
 
-    # Case 3: path directly (no flag)
+    # Case 4: file path directly
     if len(argv) >= 2 and argv[1] != "--config":
         return argv[1]
 
@@ -35,7 +42,7 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
 
 def die(msg: str) -> None:
     """Print an error to stderr and exit."""
-    print(msg)
+    print(msg, file=sys.stderr)
     sys.exit(1)
 
 
@@ -68,7 +75,6 @@ def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
     - If no newline yet but buffer is a complete JSON, parse it too.
     - Return None if we still need more bytes.
     """
-    # 1) newline-delimited first
     nl = buf.find(b"\n")
     if nl != -1:
         line = buf[:nl].strip()
@@ -80,24 +86,22 @@ def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
         except json.JSONDecodeError:
             return None
 
-    # 2) whole-buffer-as-one-JSON (no newline)
     if buf:
         try:
             obj = json.loads(buf.decode("utf-8"))
             buf.clear()
             return obj
         except json.JSONDecodeError:
-            pass  # need more data
+            pass
 
     return None
 
 
 def _iter_messages(sock: socket.socket):
     """Yield JSON objects as they arrive; tolerate slow or mixed framing."""
-    sock.settimeout(10)  # avoid hanging forever
+    sock.settimeout(10)
     buf = bytearray()
     while True:
-        # Try parsing existing bytes first
         msg = _recv_json(sock, buf)
         if msg is not None:
             yield msg
@@ -108,7 +112,6 @@ def _iter_messages(sock: socket.socket):
                 break
             buf.extend(chunk)
         except socket.timeout:
-            # Keep waiting; grader/server might be slow
             continue
 
 
@@ -118,11 +121,7 @@ _ROMAN = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
 
 def solve_math(expr: str) -> str:
-    """
-    Evaluate +, -, *, / left-to-right (same rule as the server).
-    Division is floor division; div-by-zero yields 0.
-    Example: "3 + 5 * 2" -> 16
-    """
+    """Evaluate +, -, *, / left-to-right (same rule as the server)."""
     tokens = expr.split()
     if not tokens:
         return "0"
@@ -167,20 +166,17 @@ def int_to_ip(x):
 
 
 def parse_cidr(cidr: str):
-    """Parse 'A.B.C.D/P' into (int_ip, prefix)."""
     ip, pfx = cidr.split("/")
     a, b, c, d = map(int, ip.split("."))
     return ip_to_int(a, b, c, d), int(pfx)
 
 
 def usable_count(prefix: int) -> str:
-    """Number of usable IPv4 host addresses for the given prefix."""
     hosts = 1 << (32 - prefix)
     return str(0 if prefix >= 31 else hosts - 2)
 
 
 def net_and_broadcast(cidr: str) -> str:
-    """Return 'network and broadcast' addresses for a given CIDR."""
     ipi, p = parse_cidr(cidr)
     mask = (0xFFFFFFFF << (32 - p)) & 0xFFFFFFFF
     net = ipi & mask
@@ -189,7 +185,6 @@ def net_and_broadcast(cidr: str) -> str:
 
 
 def auto_answer(qtype: str, short_q: str) -> str:
-    """Produce an answer automatically based on the question type and short question."""
     if qtype == "Mathematics":
         return solve_math(short_q)
     if qtype == "Roman Numerals":
@@ -204,15 +199,13 @@ def auto_answer(qtype: str, short_q: str) -> str:
 
 # ----------------- client main -----------------
 
-def main() -> None:	
+def main() -> None:
     cfg_path = parse_argv_for_config(sys.argv)
     cfg = load_config(cfg_path)
 
-    # Sanity check for AI mode (not used in this baseline)
     if cfg.get("client_mode") == "ai" and not cfg.get("ollama_config"):
         die("client.py: Missing values for Ollama configuration")
 
-    # Read the control command from stdin: "CONNECT <host>:<port>"
     try:
         line = input().strip()
     except EOFError:
@@ -229,16 +222,12 @@ def main() -> None:
         print("Connection failed")
         return
 
-    # Send HI (newline-terminated)
     send_json(s, {"message_type": "HI", "username": cfg["username"]})
 
-    # Choose mode. In non-interactive environments (e.g., auto-grader),
-    # force 'auto' mode to avoid blocking on input().
     mode = cfg.get("client_mode", "you")
     if not sys.stdin.isatty():
         mode = "auto"
 
-    # Process messages as they arrive
     for msg in _iter_messages(s):
         mtype = msg.get("message_type")
 
@@ -284,7 +273,6 @@ def main() -> None:
                 print(final)
             if winners:
                 print(f"The winners are: {winners}")
-            # Terminate immediately to avoid lingering and timing out
             try:
                 s.shutdown(socket.SHUT_RDWR)
             except Exception:
@@ -295,7 +283,6 @@ def main() -> None:
                 pass
             os._exit(0)
 
-    # Fallback cleanup (normally unreachable because FINISHED exits)
     try:
         s.close()
     except Exception:
@@ -304,3 +291,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
