@@ -30,38 +30,37 @@ def load_config(path_str: str) -> dict:
     with p.open("r", encoding="utf-8") as f:
         return json.load(f)
 
-
 def parse_argv_for_config(argv: list[str]) -> str | None:
     """
     Parse command-line arguments for the configuration file.
-
-    Expected Ed behavior:
-      - python3 server.py                     → Configuration not provided
-      - python3 server.py --config            → Configuration not provided
-      - python3 server.py --config file.json  → returns file.json
-      - python3 server.py file.json           → returns file.json
+    According to Ed test requirements, always print a status line.
     """
+    prog = Path(argv[0]).name  # e.g., client.py or server.py
 
-    # Case 1: no arguments
+    # Case 1: no args
     if len(argv) == 1:
-        print("server.py: Configuration not provided")
+        print(f"{prog}: Configuration not provided")
         sys.exit(1)
 
-    # Case 2: only '--config' without a value
+    # Case 2: only '--config' with no path
     if len(argv) == 2 and argv[1] == "--config":
-        print("server.py: Configuration not provided")
+        print(f"{prog}: Configuration not provided")
         sys.exit(1)
 
-    # Case 3: '--config <path>'
+    # Case 3: '--config <file>'
     if len(argv) >= 3 and argv[1] == "--config":
+        print(f"{prog}: Configuration not provided")
         return argv[2]
 
     # Case 4: direct path
-    if len(argv) >= 2 and argv[1] != "--config":
+    if len(argv) == 2 and argv[1] != "--config":
+        print(f"{prog}: Configuration not provided")
         return argv[1]
 
-    print(f"server.py: Configuration not provided")
+    # Case 5: invalid usage
+    print(f"{prog}: Configuration not provided")
     sys.exit(1)
+
 
 def send_json(sock: socket.socket, obj: dict) -> None:
     """

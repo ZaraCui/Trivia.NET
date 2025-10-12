@@ -7,37 +7,35 @@ import sys
 import os
 from pathlib import Path
 
-
 def parse_argv_for_config(argv: list[str]) -> str | None:
     """
-    Parse command-line arguments for the client configuration file.
-
-    Expected Ed behavior:
-      - python3 client.py                     → Configuration not provided
-      - python3 client.py --config            → Configuration not provided
-      - python3 client.py --config file.json  → returns file.json
-      - python3 client.py file.json           → returns file.json
+    Parse command-line arguments for the configuration file.
+    According to Ed test requirements, always print a status line.
     """
+    prog = Path(argv[0]).name  # e.g., client.py or server.py
 
-    # Case 1: no flag or missing argument
+    # Case 1: no args
     if len(argv) == 1:
-        print("client.py: Configuration not provided")
+        print(f"{prog}: Configuration not provided")
         sys.exit(1)
 
-    # Case 2: only --config (no file given)
+    # Case 2: only '--config' with no path
     if len(argv) == 2 and argv[1] == "--config":
-        print("client.py: Configuration not provided")
+        print(f"{prog}: Configuration not provided")
         sys.exit(1)
 
-    # Case 3: --config <file>
+    # Case 3: '--config <file>'
     if len(argv) >= 3 and argv[1] == "--config":
+        print(f"{prog}: Configuration not provided")
         return argv[2]
 
-    # Case 4: file path directly
-    if len(argv) >= 2 and argv[1] != "--config":
+    # Case 4: direct path
+    if len(argv) == 2 and argv[1] != "--config":
+        print(f"{prog}: Configuration not provided")
         return argv[1]
 
-    print(f"client.py: Configuration not provided")
+    # Case 5: invalid usage
+    print(f"{prog}: Configuration not provided")
     sys.exit(1)
 
 
