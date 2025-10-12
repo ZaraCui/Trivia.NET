@@ -1,7 +1,5 @@
-# server.py (fixed)
-
 import json
-import signal  # reserved for spec compliance
+import signal  # Not used in this minimal server, but kept for spec compliance
 import socket
 import sys
 import time
@@ -15,11 +13,13 @@ import questions
 # ---------------------------
 
 def die(msg: str) -> None:
+    """Print error message to stderr and exit with code 1."""
     print(msg, file=sys.stderr)
     sys.exit(1)
 
 
 def load_config(path_str: str) -> dict:
+    """Load configuration JSON file or exit with required message."""
     if not path_str:
         die("server.py: Configuration not provided")
     p = Path(path_str)
@@ -30,6 +30,7 @@ def load_config(path_str: str) -> dict:
 
 
 def parse_argv_for_config(argv: list[str]) -> str | None:
+    """Parse argv for --config or positional config path."""
     if len(argv) >= 3 and argv[1] == "--config":
         return argv[2]
     if len(argv) >= 2 and argv[1] != "--config":
@@ -38,42 +39,27 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
 
 
 def send_json(sock: socket.socket, obj: dict) -> None:
-    """Server -> client: each JSON line ends with '\\n'."""
-    data = (json.dumps(obj) + "\n").encode("utf-8")
-    sock.sendall(data)
+    """Send one JSON message to client (UTF-8 encoded)."""
+    data = json.dumps(obj).encode("utf-8")
+    sock.sendall(data + b"\n")  # append newline per new spec
 
 
-# -------- Robust JSON receiver (handles partial reads & sticky packets) --------
-
-_JSON_DECODER = json.JSONDecoder()
-
-def _recv_one_json(sock: socket.socket, buf: list[str], timeout_sec: float | None) -> dict | None:
+def recv_json(sock: socket.socket, timeout_sec: float | None = None) -> dict | None:
     """
-    Receive exactly ONE JSON object from `sock`, using and updating buf[0] as
-    a mutable text buffer. Returns None on timeout/disconnect.
+    Receive one JSON message. Returns None on timeout or parse failure.
+    Uses short polling instead of select (not allowed imports).
     """
     orig_to = sock.gettimeout()
     try:
         sock.settimeout(timeout_sec)
-        while True:
-            # Try to decode from current buffer first
-            if buf[0]:
-                try:
-                    obj, idx = _JSON_DECODER.raw_decode(buf[0])
-                    buf[0] = buf[0][idx:]  # keep any remaining data for next call
-                    return obj
-                except json.JSONDecodeError:
-                    pass  # need more data
-
-            # Read more bytes
-            chunk = sock.recv(4096)
-            if not chunk:
-                # peer closed
-                return None
-            buf[0] += chunk.decode("utf-8")
-
-            # Loop tries decode again
-    except socket.timeout:
+        data = sock.recv(65536)
+        if not data:
+            return None
+        try:
+            return json.loads(data.decode("utf-8").strip())
+        except Exception:
+            return None
+    except (socket.timeout, BlockingIOError):
         return None
     finally:
         sock.settimeout(orig_to)
@@ -84,10 +70,15 @@ def _recv_one_json(sock: socket.socket, buf: list[str], timeout_sec: float | Non
 # ---------------------------
 
 def eval_math_expression(expr: str) -> str:
-    """Left-to-right evaluation for + - * / ; integer division on '/'."""
+    """
+    Evaluate a math expression with +, -, *, or /.
+    Division is integer floor division; evaluates left-to-right (no precedence).
+    Example: '3 + 5 * 2' -> 16
+    """
     tokens = expr.split()
     if not tokens:
         return "0"
+
     total = int(tokens[0])
     i = 1
     while i + 1 < len(tokens):
@@ -107,7 +98,9 @@ def eval_math_expression(expr: str) -> str:
 
 _ROMAN_MAP = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
+
 def roman_to_int(s: str) -> str:
+    """Convert a Roman numeral (I–MMMCMXCIX) into decimal string."""
     total = 0
     i = 0
     while i < len(s):
@@ -122,26 +115,31 @@ def roman_to_int(s: str) -> str:
 
 
 def ip_to_int(a: int, b: int, c: int, d: int) -> int:
+    """Convert dotted IPv4 to integer."""
     return (a << 24) | (b << 16) | (c << 8) | d
 
 
 def int_to_ip(x: int) -> str:
+    """Convert integer to dotted IPv4 string."""
     return f"{(x >> 24) & 255}.{(x >> 16) & 255}.{(x >> 8) & 255}.{x & 255}"
 
 
 def parse_cidr(cidr: str) -> tuple[int, int]:
+    """Parse CIDR like '192.168.1.0/24' -> (int_ip, prefix)."""
     ip, pfx = cidr.split("/")
     a, b, c, d = [int(t) for t in ip.split(".")]
     return ip_to_int(a, b, c, d), int(pfx)
 
 
 def usable_count_for_prefix(p: int) -> str:
+    """Return number of usable IPv4 host addresses for given prefix length."""
     hosts = 1 << (32 - p)
     usable = hosts - 2 if p < 31 else 0
     return str(usable)
 
 
 def net_and_broadcast(cidr: str) -> str:
+    """Return network and broadcast addresses for given CIDR."""
     ip_int, p = parse_cidr(cidr)
     mask = (0xFFFFFFFF << (32 - p)) & 0xFFFFFFFF
     net = ip_int & mask
@@ -154,6 +152,7 @@ def net_and_broadcast(cidr: str) -> str:
 # ---------------------------
 
 def generate_short_question(qtype: str) -> str:
+    """Use questions.py generators to build the short_question string."""
     if qtype == "Mathematics":
         return questions.generate_mathematics_question()
     if qtype == "Roman Numerals":
@@ -168,6 +167,7 @@ def generate_short_question(qtype: str) -> str:
 
 
 def compute_correct_answer(qtype: str, short_q: str) -> str:
+    """Compute the exact string that represents the correct answer."""
     if qtype == "Mathematics":
         return eval_math_expression(short_q)
     if qtype == "Roman Numerals":
@@ -181,71 +181,69 @@ def compute_correct_answer(qtype: str, short_q: str) -> str:
 
 
 def broadcast(clients: list[dict], obj: dict) -> None:
+    """Send a JSON object to all connected clients."""
     for c in clients:
         send_json(c["sock"], obj)
 
 
 def leaderboard_state(clients: list[dict], points_singular: str, points_plural: str) -> str:
     """
-    Sorted by score desc, then name asc; equal scores share the same rank number.
+    Build a formatted leaderboard string, sorted by score desc then name asc.
+    Example:
+        1) alice - 3 points
+        2) bob - 2 points
     """
     live = [c for c in clients if not c.get("dropped")]
     live.sort(key=lambda x: (-x["score"], x["username"]))
-
     lines = []
     rank = 1
-    prev_score = None
-    for idx, c in enumerate(live, start=1):
-        if prev_score is None or c["score"] < prev_score:
-            rank = idx  # jump ranking for ties (1,1,3,...)
-            prev_score = c["score"]
-        pts_word = points_singular if c["score"] == 1 else points_plural
-        lines.append(f"{rank}) {c['username']} - {c['score']} {pts_word}")
+    for c in live:
+        pts = points_singular if c["score"] == 1 else points_plural
+        lines.append(f"{rank}) {c['username']} - {c['score']} {pts}")
+        rank += 1
     return "\n".join(lines)
 
 
 def play_rounds(clients: list[dict], cfg: dict) -> None:
+    """Main quiz round loop."""
     qword = cfg.get("question_word", "Question")
     qtypes = cfg["question_types"]
     qformats = cfg["question_formats"]
     per_q_seconds = cfg["question_seconds"]
-
-    # each client maintains an input buffer for incremental JSON parsing
-    for c in clients:
-        c["inbuf"] = [""]  # mutable string holder
 
     for idx, qtype in enumerate(qtypes, start=1):
         # Build short_question and formatted text
         short_q = generate_short_question(qtype)
         fmt = qformats.get(qtype, "{}")
         formatted_q = fmt.format(short_q)
-
-        # Spec: no colon after the header line
-        trivia_text = f"{qword} {idx} ({qtype})\n{formatted_q}"
+        trivia_text = f"{qword} {idx} ({qtype}):\n{formatted_q}"
 
         correct = compute_correct_answer(qtype, short_q)
 
-        # Send QUESTION
-        broadcast(clients, {
-            "message_type": "QUESTION",
-            "question_type": qtype,
-            "trivia_question": trivia_text,
-            "short_question": short_q,
-            "time_limit": per_q_seconds,
-        })
+        # Send QUESTION message
+        question_msg = {
+        "message_type": "QUESTION",
+        "question_type": qtype,         
+        "trivia_question": trivia_text,
+        "short_question": short_q,
+        "time_limit": per_q_seconds,
+        }
 
-        # Collect answers with deadline
+
+        broadcast(clients, question_msg)
+
+        # Collect answers
         deadline = time.time() + per_q_seconds
         pending = {c["sock"] for c in clients if not c.get("dropped")}
         answered = set()
         for c in clients:
             c["last_answer_correct"] = False
 
-        while time.time() < deadline and (pending - answered):
+        while time.time() < deadline and pending - answered:
             for c in clients:
                 if c.get("dropped") or c["sock"] in answered:
                     continue
-                msg = _recv_one_json(c["sock"], c["inbuf"], timeout_sec=0.05)
+                msg = recv_json(c["sock"], timeout_sec=0.05)
                 if not msg or msg.get("message_type") != "ANSWER":
                     continue
                 ans = str(msg.get("answer", ""))
@@ -261,7 +259,7 @@ def play_rounds(clients: list[dict], cfg: dict) -> None:
                 })
                 answered.add(c["sock"])
 
-        # Leaderboard
+        # Send leaderboard
         lb_text = leaderboard_state(
             clients,
             cfg.get("points_noun_singular", "point"),
@@ -270,7 +268,7 @@ def play_rounds(clients: list[dict], cfg: dict) -> None:
         broadcast(clients, {"message_type": "LEADERBOARD", "state": lb_text})
         time.sleep(cfg.get("question_interval_seconds", 2))
 
-    # Final standings
+    # Send final standings
     lb_text = leaderboard_state(
         clients,
         cfg.get("points_noun_singular", "point"),
@@ -296,10 +294,11 @@ def play_rounds(clients: list[dict], cfg: dict) -> None:
 # ---------------------------
 
 def main() -> None:
+    """Main server entrypoint per given skeleton."""
     cfg_path = parse_argv_for_config(sys.argv)
     cfg = load_config(cfg_path)
-    port = cfg["port"]
 
+    port = cfg["port"]
     try:
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -314,31 +313,17 @@ def main() -> None:
     try:
         while len(clients) < players_needed:
             conn, addr = srv.accept()
-
-            # local buffer to read initial HI
-            local_buf = [""]
-            msg = _recv_one_json(conn, local_buf, timeout_sec=5.0)
+            msg = recv_json(conn, timeout_sec=5.0)
             if not msg or msg.get("message_type") != "HI":
                 conn.close()
                 continue
-
             username = str(msg.get("username", ""))
-            # According to spec examples, alnum is safe (teacher may prefer stricter check).
             if not username.isalnum():
-                # spec: close all and exit(0) if an invalid hi occurs during gathering players
                 for c in clients:
                     c["sock"].close()
                 conn.close()
                 sys.exit(0)
-
-            clients.append({
-                "sock": conn,
-                "addr": addr,
-                "username": username,
-                "score": 0,
-                "dropped": False,
-                "inbuf": local_buf,  # keep any leftover bytes after HI parsing
-            })
+            clients.append({"sock": conn, "addr": addr, "username": username, "score": 0, "dropped": False})
 
         info = cfg.get("ready_info", "").format(**cfg)
         broadcast(clients, {"message_type": "READY", "info": info})
