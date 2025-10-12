@@ -42,13 +42,10 @@ def generate_roman_numerals_question() -> str:
     return f"What is the decimal value of {roman_numeral}?"
 
 
-def generate_subnet_usable_question() -> str:
-    """Generate a CIDR subnet question for usable IPs."""
-    subnet = f"192.168.{random.randint(0, 255)}.{random.randint(0, 255)}/24"
+def generate_usable_addresses_question() -> str:
+    subnet =  f"192.168.{random.randint(0,255)}.{random.randint(0,255)}/24"
     return subnet
 
-
-def generate_subnet_net_broadcast_question() -> str:
-    """Generate a CIDR subnet question for network/broadcast addresses."""
-    subnet = f"192.168.{random.randint(0, 255)}.{random.randint(0, 255)}/24"
+def generate_network_broadcast_question() -> str:
+    subnet =  f"192.168.{random.randint(0,255)}.{random.randint(0,255)}/24"
     return subnet
