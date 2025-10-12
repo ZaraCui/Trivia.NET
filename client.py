@@ -16,28 +16,14 @@ def die(msg: str) -> None:
 
 
 def parse_argv_for_config(argv: list[str]) -> str | None:
-    """Parse command-line arguments for --config or direct file path."""
-    prog = Path(argv[0]).name
-
-    # Case 1: no arguments
-    if len(argv) == 1:
-        print(f"{prog}: Configuration not provided", file=sys.stderr, flush=True)
-        sys.exit(1)
-
-    # Case 2: '--config' present but missing or empty argument
-    if argv[1] == "--config":
-        if len(argv) == 1 or len(argv) < 3 or not argv[2].strip():
-            print(f"{prog}: Configuration not provided", file=sys.stderr, flush=True)
-            sys.exit(1)
-        return argv[2]
-
-    # Case 3: direct path (e.g., python3 client.py config.json)
-    if len(argv) == 2 and argv[1] != "--config":
-        return argv[1]
-
-    # Fallback
-    print(f"{prog}: Configuration not provided", file=sys.stderr, flush=True)
-    sys.exit(1)
+    """Return config file path if --config flag is provided correctly, else None."""
+    if len(argv) <= 1:
+        return None
+    if argv[1] != "--config":
+        return None
+    if len(argv) < 3 or not argv[2].strip():
+        return None
+    return argv[2]
 
 
 def load_config(path_str: str) -> dict:
@@ -185,6 +171,9 @@ def auto_answer(qtype: str, short_q: str) -> str:
 
 def main() -> None:
     cfg_path = parse_argv_for_config(sys.argv)
+    if cfg_path is None:
+        print("client.py: Configuration not provided", file=sys.stderr, flush=True)
+        sys.exit(1)
     cfg = load_config(cfg_path)
 
     if cfg.get("client_mode") == "ai" and not cfg.get("ollama_config"):
