@@ -15,31 +15,23 @@ def die(msg: str) -> None:
 
 
 def parse_argv_for_config(argv: list[str]) -> str | None:
-    """
-    Parse command-line arguments for the configuration file.
-    Ed tests expect:
-      - Missing or incomplete args → stderr: 'Configuration not provided'
-      - Existing path args → no print, continue normally.
-    """
     prog = Path(argv[0]).name
 
     # Case 1: no args
     if len(argv) == 1:
         die(f"{prog}: Configuration not provided")
 
-    # Case 2: only '--config' with no path
-    if len(argv) == 2 and argv[1] == "--config":
-        die(f"{prog}: Configuration not provided")
-
-    # Case 3: '--config <file>'
-    if len(argv) >= 3 and argv[1] == "--config":
+    # Case 2: '--config' present but missing or empty argument
+    if argv[1] == "--config":
+        if len(argv) < 3 or not argv[2].strip():
+            die(f"{prog}: Configuration not provided")
         return argv[2]
 
-    # Case 4: direct path (no flag)
+    # Case 3: direct path
     if len(argv) == 2 and argv[1] != "--config":
         return argv[1]
 
-    # Case 5: invalid usage
+    # Fallback
     die(f"{prog}: Configuration not provided")
 
 
