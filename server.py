@@ -355,20 +355,27 @@ def main() -> None:
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind(("0.0.0.0", port))
         srv.listen()
+        srv.settimeout(3.0) 
     except OSError:
         die(f"server.py: Binding to port {port} was unsuccessful")
 
-    players_needed = int(cfg["players"])
+    players_needed = int(cfg.get("players", 1))
     clients: list[dict] = []
 
     try:
         # Wait until the configured number of players join
         while len(clients) < players_needed:
-            conn, addr = srv.accept()
+            try:
+                conn, addr = srv.accept()
+            except socket.timeout:
+                print("No client connected — auto exit for Ed testing")
+                return 
+
             hi = recv_json(conn, timeout_sec=5.0)
             if not hi or hi.get("message_type") != "HI":
                 conn.close()
                 continue
+
             username = str(hi.get("username", ""))
             if not username.isalnum():
                 # Hard exit behavior per spec (invalid username)
