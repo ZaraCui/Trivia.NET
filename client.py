@@ -195,7 +195,13 @@ def auto_answer(qtype: str, short_q: str) -> str:
 
 def main() -> None:
     cfg_path = parse_argv_for_config(sys.argv)
+
+    # If config file doesn't exist, die() already exits.
+    # Only load if it actually exists and this is not the EXIT case.
+    if not cfg_path:
+        return
     cfg = load_config(cfg_path)
+
 
     if cfg.get("client_mode") == "ai" and not cfg.get("ollama_config"):
         die("client.py: Missing values for Ollama configuration")
