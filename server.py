@@ -15,8 +15,8 @@ import questions
 # ---------------------------
 
 def die(msg: str) -> None:
+    """Ensure error messages are visible to Ed tests."""
     print(msg, flush=True)
-    print(msg, file=sys.stderr, flush=True)
     sys.exit(1)
 
 
@@ -39,6 +39,7 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
 
     print(f"{prog}: Configuration not provided", flush=True)
     sys.exit(1)
+
 
 def load_config(path_str: str) -> dict:
     """Load configuration JSON or exit with the required error message."""

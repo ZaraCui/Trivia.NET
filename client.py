@@ -1,6 +1,5 @@
 # client.py — robust line-based / bare-JSON client
 
-import argparse
 import json
 import socket
 import sys
@@ -30,10 +29,9 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
     sys.exit(1)
 
 def die(msg: str) -> None:
+    """Ensure error messages are visible in Ed tests."""
     print(msg, flush=True)
-    print(msg, file=sys.stderr, flush=True)
     sys.exit(1)
-
 
 def load_config(path_str: str) -> dict:
     """Load the client configuration JSON file or exit with the required message."""
@@ -44,6 +42,7 @@ def load_config(path_str: str) -> dict:
         die(f"client.py: File {path_str} does not exist")
     with p.open("r", encoding="utf-8") as f:
         return json.load(f)
+
 
 
 # ----------------- helpers -----------------
