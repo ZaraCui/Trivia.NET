@@ -1,4 +1,4 @@
-# client.py (robust, line-based I/O, English comments)
+# client.py — robust line-based JSON client
 
 import argparse
 import json
@@ -6,10 +6,12 @@ import socket
 import sys
 from pathlib import Path
 
+
 def die(msg: str) -> None:
     """Print an error to stderr and exit."""
     print(msg, file=sys.stderr)
     sys.exit(1)
+
 
 def load_config(path_str: str) -> dict:
     """Load the client configuration JSON file or exit with a required message."""
@@ -21,14 +23,27 @@ def load_config(path_str: str) -> dict:
     with p.open("r", encoding="utf-8") as f:
         return json.load(f)
 
+
+# ----------------- helpers -----------------
+
+def send_json(sock: socket.socket, obj: dict) -> None:
+    """
+    Send exactly one JSON message, newline-terminated.
+    Using '\n' as a frame delimiter prevents sticky/partial packet issues.
+    """
+    sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
+
+
 # ----------------- solvers for auto mode -----------------
-_ROMAN = {"I":1,"V":5,"X":10,"L":50,"C":100,"D":500,"M":1000}
+
+_ROMAN = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+
 
 def solve_math(expr: str) -> str:
     """
-    Evaluate a simple math expression with +, -, *, / from left to right.
-    Division matches the server: integer floor division; div-by-zero yields 0.
-    Example: '3 + 5 * 2' -> ((3 + 5) * 2) = 16
+    Evaluate +, -, *, / left-to-right (same rule as the server).
+    Division is floor division; div-by-zero yields 0.
+    Example: "3 + 5 * 2" -> 16
     """
     tokens = expr.split()
     if not tokens:
@@ -36,27 +51,42 @@ def solve_math(expr: str) -> str:
     val = int(tokens[0])
     i = 1
     while i + 1 < len(tokens):
-        op = tokens[i]; rhs = int(tokens[i + 1])
-        if   op == "+": val += rhs
-        elif op == "-": val -= rhs
-        elif op == "*": val *= rhs
-        elif op == "/": val = (val // rhs) if rhs != 0 else 0
+        op = tokens[i]
+        rhs = int(tokens[i + 1])
+        if op == "+":
+            val += rhs
+        elif op == "-":
+            val -= rhs
+        elif op == "*":
+            val *= rhs
+        elif op == "/":
+            val = (val // rhs) if rhs != 0 else 0
         i += 2
     return str(val)
 
+
 def roman_to_int(s: str) -> str:
-    """Convert a Roman numeral to decimal (supports up to 3999)."""
-    total = 0; i = 0
+    """Convert a Roman numeral (1..3999) to decimal string."""
+    total = 0
+    i = 0
     while i < len(s):
         a = _ROMAN[s[i]]
         if i + 1 < len(s) and _ROMAN[s[i + 1]] > a:
-            total += _ROMAN[s[i + 1]] - a; i += 2
+            total += _ROMAN[s[i + 1]] - a
+            i += 2
         else:
-            total += a; i += 1
+            total += a
+            i += 1
     return str(total)
 
-def ip_to_int(a, b, c, d): return (a << 24) | (b << 16) | (c << 8) | d
-def int_to_ip(x): return f"{(x>>24)&255}.{(x>>16)&255}.{(x>>8)&255}.{x&255}"
+
+def ip_to_int(a, b, c, d):
+    return (a << 24) | (b << 16) | (c << 8) | d
+
+
+def int_to_ip(x):
+    return f"{(x >> 24) & 255}.{(x >> 16) & 255}.{(x >> 8) & 255}.{x & 255}"
+
 
 def parse_cidr(cidr: str):
     """Parse 'A.B.C.D/P' into (int_ip, prefix)."""
@@ -64,10 +94,12 @@ def parse_cidr(cidr: str):
     a, b, c, d = map(int, ip.split("."))
     return ip_to_int(a, b, c, d), int(pfx)
 
+
 def usable_count(prefix: int) -> str:
-    """Return the number of usable IPv4 addresses for the given CIDR prefix."""
+    """Number of usable IPv4 host addresses for the given prefix."""
     hosts = 1 << (32 - prefix)
     return str(0 if prefix >= 31 else hosts - 2)
+
 
 def net_and_broadcast(cidr: str) -> str:
     """Return 'network and broadcast' addresses for a given CIDR."""
@@ -76,6 +108,7 @@ def net_and_broadcast(cidr: str) -> str:
     net = ipi & mask
     bcast = net | (~mask & 0xFFFFFFFF)
     return f"{int_to_ip(net)} and {int_to_ip(bcast)}"
+
 
 def auto_answer(qtype: str, short_q: str) -> str:
     """Produce an answer automatically based on the question type and short question."""
@@ -90,7 +123,9 @@ def auto_answer(qtype: str, short_q: str) -> str:
         return net_and_broadcast(short_q)
     return ""
 
+
 # ----------------- client main -----------------
+
 def main() -> None:
     # Parse CLI args
     ap = argparse.ArgumentParser(add_help=False)
@@ -122,15 +157,13 @@ def main() -> None:
         print("Connection failed")
         return
 
-    # Send HI (newline-terminated to be compatible with line-framed parsers)
-    hi = {"message_type": "HI", "username": cfg["username"]}
-    s.sendall(json.dumps(hi).encode("utf-8") + b"\n")
+    # Send HI (newline-terminated)
+    send_json(s, {"message_type": "HI", "username": cfg["username"]})
 
-    # Use a text wrapper to read exactly one JSON object per line (prevents sticky/partial packet issues).
+    # Read one JSON object per line (prevents sticky/partial packet issues).
     f = s.makefile("r", encoding="utf-8", newline="\n")
 
     mode = cfg.get("client_mode", "you")
-    skip_next_question = False  # After an incorrect RESULT, skip the next QUESTION as per spec.
 
     for raw in f:
         line = raw.strip()
@@ -150,17 +183,13 @@ def main() -> None:
                 print(info)
 
         elif mtype == "QUESTION":
-            # If previous question was incorrect, we must skip answering the next one.
-            if skip_next_question:
-                skip_next_question = False
-                continue
-
             # Print the full question text exactly as given
             trivia = msg.get("trivia_question", "")
             if trivia:
                 print(trivia)
 
             short_q = msg.get("short_question", "")
+            # Server sends the question type explicitly; use it.
             qtype = msg.get("question_type", "")
 
             if mode == "you":
@@ -177,15 +206,10 @@ def main() -> None:
                 answer = ""
 
             # Send ANSWER (newline-terminated)
-            ans_msg = {"message_type": "ANSWER", "answer": answer}
-            s.sendall(json.dumps(ans_msg).encode("utf-8") + b"\n")
+            send_json(s, {"message_type": "ANSWER", "answer": answer})
 
         elif mtype == "RESULT":
-            # Print feedback ("Correct!" or "Incorrect.")
             print(msg.get("feedback", ""))
-            # If incorrect, skip the very next question
-            if msg.get("correct") is False:
-                skip_next_question = True
 
         elif mtype == "LEADERBOARD":
             state = msg.get("state", "")
@@ -206,6 +230,7 @@ def main() -> None:
         s.close()
     except Exception:
         pass
+
 
 if __name__ == "__main__":
     main()

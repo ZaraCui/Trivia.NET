@@ -1,4 +1,4 @@
-# server.py (line-delimited JSON I/O, English comments)
+# server.py — line-delimited JSON I/O (robust)
 
 import json
 import signal  # kept for spec compliance (unused)
@@ -9,6 +9,7 @@ from pathlib import Path
 
 import questions
 
+
 # ---------------------------
 # Utilities
 # ---------------------------
@@ -17,6 +18,7 @@ def die(msg: str) -> None:
     """Print an error and exit with code 1."""
     print(msg, file=sys.stderr)
     sys.exit(1)
+
 
 def load_config(path_str: str) -> dict:
     """Load configuration JSON or exit with the required error message."""
@@ -27,6 +29,7 @@ def load_config(path_str: str) -> dict:
         die(f"server.py: File {path_str} does not exist")
     with p.open("r", encoding="utf-8") as f:
         return json.load(f)
+
 
 def parse_argv_for_config(argv: list[str]) -> str | None:
     """
@@ -41,16 +44,18 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
         return argv[1]
     return None
 
+
 def send_json(sock: socket.socket, obj: dict) -> None:
     """
     Send exactly one JSON object framed by a newline.
-    Testers and our client expect line-delimited JSON.
+    Testers/clients expect line-delimited JSON.
     """
-    data = json.dumps(obj).encode("utf-8")
-    sock.sendall(data + b"\n")
+    sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
+
 
 # --- Line-delimited, buffered JSON receiver (simple & robust) ---
 _buffers: dict[int, bytes] = {}
+
 
 def recv_json(sock: socket.socket, timeout_sec: float | None = None) -> dict | None:
     """
@@ -71,11 +76,12 @@ def recv_json(sock: socket.socket, timeout_sec: float | None = None) -> dict | N
                 _buffers[fd] = rest
                 line = line.strip()
                 if not line:
+                    # Skip empty line and keep waiting for next
                     continue
                 try:
                     return json.loads(line.decode("utf-8"))
                 except json.JSONDecodeError:
-                    # Malformed line; drop it and continue
+                    # Malformed line; drop it and continue reading
                     continue
 
             # Need more bytes to complete a full line
@@ -92,6 +98,7 @@ def recv_json(sock: socket.socket, timeout_sec: float | None = None) -> dict | N
         return None
     finally:
         sock.settimeout(orig_to)
+
 
 # ---------------------------
 # Answer checkers
@@ -121,7 +128,9 @@ def eval_math_expression(expr: str) -> str:
         i += 2
     return str(total)
 
+
 _ROMAN_MAP = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+
 
 def roman_to_int(s: str) -> str:
     """Convert a Roman numeral (I–MMMCMXCIX) into a decimal string."""
@@ -137,21 +146,26 @@ def roman_to_int(s: str) -> str:
             i += 1
     return str(total)
 
+
 def ip_to_int(a: int, b: int, c: int, d: int) -> int:
     return (a << 24) | (b << 16) | (c << 8) | d
 
+
 def int_to_ip(x: int) -> str:
     return f"{(x >> 24) & 255}.{(x >> 16) & 255}.{(x >> 8) & 255}.{x & 255}"
+
 
 def parse_cidr(cidr: str) -> tuple[int, int]:
     ip, pfx = cidr.split("/")
     a, b, c, d = [int(t) for t in ip.split(".")]
     return ip_to_int(a, b, c, d), int(pfx)
 
+
 def usable_count_for_prefix(p: int) -> str:
     hosts = 1 << (32 - p)
     usable = hosts - 2 if p < 31 else 0
     return str(usable)
+
 
 def net_and_broadcast(cidr: str) -> str:
     ip_int, p = parse_cidr(cidr)
@@ -160,6 +174,7 @@ def net_and_broadcast(cidr: str) -> str:
     bcast = net | (~mask & 0xFFFFFFFF)
     return f"{int_to_ip(net)} and {int_to_ip(bcast)}"
 
+
 # ---------------------------
 # Game flow
 # ---------------------------
@@ -167,19 +182,20 @@ def net_and_broadcast(cidr: str) -> str:
 def generate_short_question(qtype: str) -> str:
     """
     Produce the 'short_question' string for each question type using questions.py.
-    For Roman Numerals, we extract the numeral token from the full sentence.
+    For Roman Numerals, extract the numeral token from the full sentence.
     """
     if qtype == "Mathematics":
         return questions.generate_mathematics_question()
     if qtype == "Roman Numerals":
-        roman = questions.generate_roman_numerals_question()
-        candidate = roman.strip().split()[-1]
-        return candidate.strip("?.!,")
+        full = questions.generate_roman_numerals_question()
+        token = full.strip().split()[-1]
+        return token.strip("?.!,")
     if qtype == "Usable IP Addresses of a Subnet":
         return questions.generate_usable_addresses_question()
     if qtype == "Network and Broadcast Address of a Subnet":
         return questions.generate_network_broadcast_question()
     return "1 + 1"  # fallback
+
 
 def compute_correct_answer(qtype: str, short_q: str) -> str:
     """Compute the exact string representing the correct answer for the given question."""
@@ -194,11 +210,13 @@ def compute_correct_answer(qtype: str, short_q: str) -> str:
         return net_and_broadcast(short_q)
     return ""
 
+
 def broadcast(clients: list[dict], obj: dict) -> None:
-    """Send a JSON object to all connected (non-dropped) clients."""
+    """Send a JSON object to all connected (not dropped) clients."""
     for c in clients:
         if not c.get("dropped"):
             send_json(c["sock"], obj)
+
 
 def leaderboard_state(clients: list[dict], points_singular: str, points_plural: str) -> str:
     """
@@ -216,6 +234,7 @@ def leaderboard_state(clients: list[dict], points_singular: str, points_plural: 
         rank += 1
     return "\n".join(lines)
 
+
 def play_rounds(clients: list[dict], cfg: dict) -> None:
     """Main quiz loop over the configured question types."""
     qword = cfg.get("question_word", "Question")
@@ -228,7 +247,7 @@ def play_rounds(clients: list[dict], cfg: dict) -> None:
         short_q = generate_short_question(qtype)
         fmt = qformats.get(qtype, "{}")
         formatted_q = fmt.format(short_q)
-        # IMPORTANT: no colon after the header line (matches examples/spec)
+        # IMPORTANT: no colon after the header line
         trivia_text = f"{qword} {idx} ({qtype})\n{formatted_q}"
 
         correct = compute_correct_answer(qtype, short_q)
@@ -299,12 +318,13 @@ def play_rounds(clients: list[dict], cfg: dict) -> None:
         "winners": winners_str,
     })
 
+
 # ---------------------------
 # Main
 # ---------------------------
 
 def main() -> None:
-    """Main server entrypoint per the given skeleton/spec."""
+    """Main server entrypoint per the specification."""
     cfg_path = parse_argv_for_config(sys.argv)
     cfg = load_config(cfg_path)
 
@@ -360,6 +380,7 @@ def main() -> None:
             srv.close()
         except Exception:
             pass
+
 
 if __name__ == "__main__":
     main()
