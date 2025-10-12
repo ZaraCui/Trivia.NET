@@ -23,7 +23,9 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
 
     # Case 2: '--config' present but missing or empty argument
     if argv[1] == "--config":
-        if len(argv) < 3 or not argv[2].strip():
+        if len(argv) < 3:
+            die(f"{prog}: Configuration not provided")
+        if not argv[2].strip():
             die(f"{prog}: Configuration not provided")
         return argv[2]
 
