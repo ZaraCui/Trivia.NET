@@ -43,7 +43,7 @@ def load_config(path_str: str) -> dict:
 
 def send_json(sock: socket.socket, obj: dict) -> None:
     """Send exactly one JSON message, newline-terminated."""
-    sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
+    sock.sendall((json.dumps(obj)).encode("utf-8"))
 
 
 def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
