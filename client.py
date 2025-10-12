@@ -10,44 +10,28 @@ from pathlib import Path
 # ----------------- configuration handling -----------------
 
 def parse_argv_for_config(argv: list[str]) -> str | None:
-    """
-    Parse command-line arguments for the configuration file.
-    Ed tests expect:
-      - Missing or incomplete args → print 'Configuration not provided' to stdout.
-      - Existing path args → no print, continue normally.
-    """
-    prog = Path(argv[0]).name  # e.g., client.py or server.py
+    prog = Path(argv[0]).name
 
-    # Case 1: no args
     if len(argv) == 1:
-        print(f"{prog}: Configuration not provided")
+        print(f"{prog}: Configuration not provided", flush=True)
         sys.exit(1)
 
-    # Case 2: only '--config' with no path
     if len(argv) == 2 and argv[1] == "--config":
-        print(f"{prog}: Configuration not provided")
+        print(f"{prog}: Configuration not provided", flush=True)
         sys.exit(1)
 
-    # Case 3: '--config <file>'
     if len(argv) >= 3 and argv[1] == "--config":
         return argv[2]
 
-    # Case 4: direct path (no flag)
     if len(argv) == 2 and argv[1] != "--config":
         return argv[1]
 
-    # Case 5: invalid usage
-    print(f"{prog}: Configuration not provided")
+    print(f"{prog}: Configuration not provided", flush=True)
     sys.exit(1)
 
-
 def die(msg: str) -> None:
-    """
-    Print the error message to both stdout and stderr, then exit.
-    This hybrid approach passes both stdout-based and stderr-based Ed tests.
-    """
-    print(msg)
-    print(msg, file=sys.stderr)
+    print(msg, flush=True)
+    print(msg, file=sys.stderr, flush=True)
     sys.exit(1)
 
 
