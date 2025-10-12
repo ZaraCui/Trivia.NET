@@ -1,5 +1,3 @@
-# client.py (fixed, line-based reader + skip-next logic)
-
 import argparse, json, socket, sys
 from pathlib import Path
 
@@ -15,15 +13,18 @@ def load_config(path_str):
 _ROMAN = {"I":1,"V":5,"X":10,"L":50,"C":100,"D":500,"M":1000}
 
 def solve_math(expr: str) -> str:
+    # Evaluate +,-,*,/ left-to-right (matches our generator bias; server uses exact match)
     tokens = expr.split()
-    val = int(tokens[0]) if tokens else 0
+    val = int(tokens[0])
     i = 1
     while i + 1 < len(tokens):
         op = tokens[i]; rhs = int(tokens[i+1])
-        if   op == "+": val += rhs
+        if op == "+": val += rhs
         elif op == "-": val -= rhs
         elif op == "*": val *= rhs
-        elif op == "/": val = val // rhs if rhs != 0 else 0
+        elif op == "/": 
+            # integer division if divisible, else float truncated to int per simple rules
+            val = int(val / rhs)
         i += 2
     return str(val)
 
@@ -76,7 +77,6 @@ def main():
     if cfg.get("client_mode") == "ai" and not cfg.get("ollama_config"):
         die("client.py: Missing values for Ollama configuration")
 
-    # Read CONNECT command from stdin
     line = input().strip()
     if not line.startswith("CONNECT "): return
     hostport = line.split(" ",1)[1]
@@ -87,58 +87,42 @@ def main():
     except Exception:
         print("Connection failed"); return
 
-    # Send HI (client → server: NO trailing newline)
+    # Send HI
     s.sendall(json.dumps({"message_type":"HI","username": cfg["username"]}).encode("utf-8"))
 
-    # Line-based reader (server sends JSON lines ending with '\n')
-    f = s.makefile("r", encoding="utf-8", newline="\n")
-
-    mode = cfg.get("client_mode","you")
-    skip_next_question = False  # If previous RESULT was incorrect, skip next QUESTION
-
-    for line in f:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
+    # Message loop
+    while True:
+        data = s.recv(65536)
+        if not data: break
+        msg = json.loads(data.decode("utf-8"))
         mtype = msg.get("message_type")
 
         if mtype == "READY":
-            info = msg.get("info","")
-            if info: print(info)
+            print(msg["info"])
 
         elif mtype == "QUESTION":
-            # Print full text for humans
-            trivia = msg.get("trivia_question","")
-            if trivia: print(trivia)
-
-            # Respect "skip next question" rule
-            if skip_next_question:
-                skip_next_question = False
-                continue
-
+            # Print full text
+            if "trivia_question" in msg: print(msg["trivia_question"])
+            # Decide answer by mode
             short_q = msg.get("short_question","")
-            qtype   = msg.get("question_type","")
+            q_text = msg.get("trivia_question","")
+            # Infer qtype from text inside parentheses: 'Question X (Type):'
+            qtype = ""
+            if "(" in q_text and "):" in q_text:
+                qtype = q_text.split("(")[1].split("):")[0]
+            answer = ""
+            mode = cfg.get("client_mode","you")
             if mode == "you":
                 answer = input().strip()
             elif mode == "auto":
                 answer = auto_answer(qtype, short_q)
             elif mode == "ai":
-                # Baseline: no external call
+                # For this baseline we don't call external APIs; just send blank
                 answer = ""
-
-            # Send ANSWER (no newline)
-            s.sendall(json.dumps({"message_type": "ANSWER", "answer": answer}).encode("utf-8"))
+            s.sendall(json.dumps({"message_type":"ANSWER","answer": answer}).encode("utf-8"))
 
         elif mtype == "RESULT":
             print(msg.get("feedback",""))
-            # If incorrect, skip answering the NEXT question
-            if msg.get("correct") is False:
-                skip_next_question = True
 
         elif mtype == "LEADERBOARD":
             state = msg.get("state","")
