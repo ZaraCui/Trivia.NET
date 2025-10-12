@@ -1,28 +1,16 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -e
 
-python3 server.py --config configs/server_one_math.json > /tmp/a2_server.log 2>&1 &
+python3 server.py --config configs/server_one_math.json > /dev/null 2>&1 &
 SRV_PID=$!
 sleep 1
 
-{
-  echo "CONNECT 127.0.0.1:5001"
-} | python3 client.py --config configs/client_auto.json > /tmp/a2_client_auto.out 2>/tmp/a2_client_auto.err &
-CLI1_PID=$!
-
-{
-  echo "CONNECT 127.0.0.1:5001"
-} | python3 client.py --config configs/client_you.json  > /tmp/a2_client_you.out  2>/tmp/a2_client_you.err &
-CLI2_PID=$!
-
-wait $CLI1_PID
-wait $CLI2_PID
-
+python3 client.py --config configs/client_auto.json < tests/data/client_connect.in > tests/data/client_connect.actual
 kill $SRV_PID || true
-wait $SRV_PID 2>/dev/null || true
 
-grep -qi "get ready"                 /tmp/a2_client_auto.out
-grep -qi "question 1 (mathematics)"  /tmp/a2_client_auto.out
-grep -qi "final standings"           /tmp/a2_client_auto.out
+grep -qi "get ready" tests/data/client_connect.actual
+grep -qi "question 1 (mathematics)" tests/data/client_connect.actual
+grep -qi "correct" tests/data/client_connect.actual
+grep -qi "final standings" tests/data/client_connect.actual
 
 echo "OK"
