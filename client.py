@@ -7,20 +7,30 @@ import sys
 import os
 from pathlib import Path
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", dest="config", help="Path to config JSON")
-    args, unknown = parser.parse_known_args()
+def parse_argv_for_config(argv: list[str]) -> str | None:
+    """
+    Parse command-line arguments for the client configuration file.
 
-    if "--config" not in sys.argv:
-        print("client.py: Configuration not provided", file=sys.stderr)
+    Expected Ed behavior:
+      - No flag  -> print 'client.py: Configuration not provided'
+      - '--config' with no value -> print same line
+      - '--config file' or 'file' alone -> return that path
+    """
+
+    # Case 1: no arguments or only '--config' without a file path
+    if len(argv) == 1 or (len(argv) == 2 and argv[1] == "--config"):
+        print("client.py: Configuration not provided")
         sys.exit(1)
 
-    if not args.config:
-        print("client.py: error: argument --config: expected one argument", file=sys.stderr)
-        sys.exit(1)
+    # Case 2: '--config path/to/file'
+    if len(argv) >= 3 and argv[1] == "--config":
+        return argv[2]
 
-    return args.config
+    # Case 3: path directly (no flag)
+    if len(argv) >= 2 and argv[1] != "--config":
+        return argv[1]
+
+    return None
 
 
 def die(msg: str) -> None:
@@ -194,14 +204,8 @@ def auto_answer(qtype: str, short_q: str) -> str:
 
 # ----------------- client main -----------------
 
-def main() -> None:
-    # Parse CLI args
-    ap = argparse.ArgumentParser(add_help=False)
-    ap.add_argument("--config")
-    ap.add_argument("maybe_config", nargs="?", default=None)
-    args = ap.parse_args()
-
-    cfg_path = args.config or args.maybe_config
+def main() -> None:	
+    cfg_path = parse_argv_for_config(sys.argv)
     cfg = load_config(cfg_path)
 
     # Sanity check for AI mode (not used in this baseline)
