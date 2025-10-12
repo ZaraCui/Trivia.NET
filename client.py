@@ -16,26 +16,26 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
 
     # Case 1: no args
     if len(argv) == 1:
-        print(f"{prog}: Configuration not provided")
+        print(f"{prog}: Configuration not provided", file=sys.stderr)
         sys.exit(1)
 
     # Case 2: only '--config' with no path
     if len(argv) == 2 and argv[1] == "--config":
-        print(f"{prog}: Configuration not provided")
+        print(f"{prog}: Configuration not provided", file=sys.stderr)
         sys.exit(1)
 
     # Case 3: '--config <file>'
     if len(argv) >= 3 and argv[1] == "--config":
-        print(f"{prog}: Configuration not provided")
+        print(f"{prog}: Configuration not provided", file=sys.stderr)
         return argv[2]
 
     # Case 4: direct path
     if len(argv) == 2 and argv[1] != "--config":
-        print(f"{prog}: Configuration not provided")
+        print(f"{prog}: Configuration not provided", file=sys.stderr)
         return argv[1]
 
     # Case 5: invalid usage
-    print(f"{prog}: Configuration not provided")
+    print(f"{prog}: Configuration not provided", file=sys.stderr)
     sys.exit(1)
 
 
