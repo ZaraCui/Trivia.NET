@@ -152,7 +152,6 @@ def net_and_broadcast(cidr: str) -> str:
 # ---------------------------
 
 def generate_short_question(qtype: str) -> str:
-    def generate_short_question(qtype: str) -> str:
     if qtype == "Mathematics":
         return questions.generate_mathematics_question()
     if qtype == "Roman Numerals":
@@ -216,7 +215,7 @@ def play_rounds(clients: list[dict], cfg: dict) -> None:
         short_q = generate_short_question(qtype)
         fmt = qformats.get(qtype, "{}")
         formatted_q = fmt.format(short_q)
-        trivia_text = f"{qword} {idx} ({qtype}):\n{formatted_q}"
+        trivia_text = f"{qword} {idx} ({qtype})\n{formatted_q}"
 
         correct = compute_correct_answer(qtype, short_q)
 
