@@ -37,7 +37,8 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
     if len(argv) >= 2 and argv[1] != "--config":
         return argv[1]
 
-    return None
+    print(f"client.py: Configuration not provided")
+    sys.exit(1)
 
 
 def die(msg: str) -> None:

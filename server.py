@@ -60,8 +60,8 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
     if len(argv) >= 2 and argv[1] != "--config":
         return argv[1]
 
-    return None
-
+    print(f"server.py: Configuration not provided")
+    sys.exit(1)
 
 def send_json(sock: socket.socket, obj: dict) -> None:
     """
