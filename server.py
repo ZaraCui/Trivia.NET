@@ -53,48 +53,52 @@ def send_json(sock: socket.socket, obj: dict) -> None:
     sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
 
 
-# --- Line-delimited, buffered JSON receiver (simple & robust) ---
-_buffers: dict[int, bytes] = {}
-
+# --- Line-delimited or bare-JSON receiver (robust) ---
+_buffers: dict[int, bytearray] = {}
 
 def recv_json(sock: socket.socket, timeout_sec: float | None = None) -> dict | None:
     """
-    Receive exactly one JSON object framed by a newline.
-    - Maintains a per-socket byte buffer
-    - Returns one parsed JSON object when a full line is available
-    - Returns None on timeout or if connection closes before a full line arrives
+    Receive exactly one JSON object.
+    Compatible with:
+      1) line-delimited JSON (ends with '\n')
+      2) bare single JSON object (no newline)
+    Returns None on timeout or if a full object isn't available yet.
     """
     fd = sock.fileno()
-    buf = _buffers.get(fd, b"")
+    buf = _buffers.setdefault(fd, bytearray())
     orig_to = sock.gettimeout()
     try:
         sock.settimeout(timeout_sec)
-        while True:
-            # If we already have a full line, parse it
-            if b"\n" in buf:
-                line, rest = buf.split(b"\n", 1)
-                _buffers[fd] = rest
-                line = line.strip()
-                if not line:
-                    # Skip empty line and keep waiting for next
-                    continue
+
+        # Try newline-delimited first
+        nl = buf.find(b"\n")
+        if nl != -1:
+            line = buf[:nl].strip()
+            del buf[:nl+1]
+            if line:
                 try:
                     return json.loads(line.decode("utf-8"))
                 except json.JSONDecodeError:
-                    # Malformed line; drop it and continue reading
-                    continue
+                    pass  # fallthrough to read more
 
-            # Need more bytes to complete a full line
-            chunk = sock.recv(4096)
-            if not chunk:
-                # Peer closed connection
-                _buffers[fd] = b""
-                return None
-            buf += chunk
-            _buffers[fd] = buf
+        # Try whole-buffer-as-one-JSON (no newline)
+        if buf:
+            try:
+                obj = json.loads(buf.decode("utf-8"))
+                buf.clear()
+                return obj
+            except json.JSONDecodeError:
+                pass  # need more data
+
+        # Need more bytes
+        chunk = sock.recv(4096)
+        if not chunk:
+            _buffers.pop(fd, None)  # peer closed
+            return None
+        buf.extend(chunk)
+        return None  # let caller poll again
 
     except (socket.timeout, BlockingIOError):
-        # Timeout: keep buffer intact for next call
         return None
     finally:
         sock.settimeout(orig_to)

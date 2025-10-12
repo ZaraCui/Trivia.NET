@@ -33,6 +33,58 @@ def send_json(sock: socket.socket, obj: dict) -> None:
     """
     sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
 
+# === robust message reader (works with line-delimited OR bare JSON) ===
+def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
+    """
+    Return exactly one JSON obj from buffer/socket if available.
+    - Prefer line-delimited JSON (split by '\n')
+    - If no newline yet but buffer is a complete JSON, parse it too.
+    - Return None if we still need more bytes.
+    """
+    # 1) newline-delimited first
+    nl = buf.find(b"\n")
+    if nl != -1:
+        line = buf[:nl].strip()
+        del buf[:nl+1]
+        if not line:
+            return None
+        try:
+            return json.loads(line.decode("utf-8"))
+        except json.JSONDecodeError:
+            return None
+
+    # 2) whole-buffer-as-one-JSON (no newline)
+    if buf:
+        try:
+            obj = json.loads(buf.decode("utf-8"))
+            buf.clear()
+            return obj
+        except json.JSONDecodeError:
+            pass  # need more data
+
+    return None
+
+
+def _iter_messages(sock: socket.socket):
+    """Yield JSON objects as they arrive; tolerate slow or mixed framing."""
+    sock.settimeout(10)  # avoid hanging forever
+    buf = bytearray()
+    while True:
+        # try parse existing bytes first
+        msg = _recv_json(sock, buf)
+        if msg is not None:
+            yield msg
+            continue
+        try:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            buf.extend(chunk)
+        except socket.timeout:
+            # keep waiting; grader might be slow
+            continue
+
+
 
 # ----------------- solvers for auto mode -----------------
 
@@ -163,18 +215,10 @@ def main() -> None:
     # Read one JSON object per line (prevents sticky/partial packet issues).
     f = s.makefile("r", encoding="utf-8", newline="\n")
 
+        # Read messages robustly (line-delimited OR bare JSON)
     mode = cfg.get("client_mode", "you")
 
-    for raw in f:
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError:
-            # Ignore malformed lines; continue reading
-            continue
-
+    for msg in _iter_messages(s):
         mtype = msg.get("message_type")
 
         if mtype == "READY":
@@ -183,13 +227,11 @@ def main() -> None:
                 print(info)
 
         elif mtype == "QUESTION":
-            # Print the full question text exactly as given
             trivia = msg.get("trivia_question", "")
             if trivia:
                 print(trivia)
 
             short_q = msg.get("short_question", "")
-            # Server sends the question type explicitly; use it.
             qtype = msg.get("question_type", "")
 
             if mode == "you":
@@ -200,12 +242,10 @@ def main() -> None:
             elif mode == "auto":
                 answer = auto_answer(qtype, short_q)
             elif mode == "ai":
-                # Baseline: not calling external APIs in this assignment
                 answer = ""
             else:
                 answer = ""
 
-            # Send ANSWER (newline-terminated)
             send_json(s, {"message_type": "ANSWER", "answer": answer})
 
         elif mtype == "RESULT":
@@ -224,6 +264,7 @@ def main() -> None:
             if winners:
                 print(f"The winners are: {winners}")
             break
+
 
     # Clean up the socket
     try:
