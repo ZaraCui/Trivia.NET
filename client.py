@@ -7,6 +7,21 @@ import sys
 import os
 from pathlib import Path
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", dest="config", help="Path to config JSON")
+    args, unknown = parser.parse_known_args()
+
+    if "--config" not in sys.argv:
+        print("client.py: Configuration not provided", file=sys.stderr)
+        sys.exit(1)
+
+    if not args.config:
+        print("client.py: error: argument --config: expected one argument", file=sys.stderr)
+        sys.exit(1)
+
+    return args.config
+
 
 def die(msg: str) -> None:
     """Print an error to stderr and exit."""

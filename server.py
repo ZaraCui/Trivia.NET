@@ -32,16 +32,16 @@ def load_config(path_str: str) -> dict:
 
 
 def parse_argv_for_config(argv: list[str]) -> str | None:
-    """
-    Accept either:
-      python server.py --config configs/server.json
-    or
-      python server.py configs/server.json
-    """
+    if len(argv) == 1:
+        print("server.py: Configuration not provided")
+        sys.exit(1)
     if len(argv) >= 3 and argv[1] == "--config":
         return argv[2]
     if len(argv) >= 2 and argv[1] != "--config":
         return argv[1]
+    if len(argv) == 2 and argv[1] == "--config":
+        print("server.py: error: argument --config: expected one argument", file=sys.stderr)
+        sys.exit(1)
     return None
 
 
