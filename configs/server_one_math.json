@@ -1,6 +1,6 @@
 {
     "port": 5001,
-    "players": 1,
+    "players": 2,
     "question_word": "Question",
     "question_seconds": 4,
     "question_interval_seconds": 0.5,
