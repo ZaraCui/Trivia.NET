@@ -1,7 +1,7 @@
-# server.py (robust JSON I/O, English comments)
+# server.py (line-delimited JSON I/O, English comments)
 
 import json
-import signal  # kept for spec compliance, not used
+import signal  # kept for spec compliance (unused)
 import socket
 import sys
 import time
@@ -49,62 +49,46 @@ def send_json(sock: socket.socket, obj: dict) -> None:
     data = json.dumps(obj).encode("utf-8")
     sock.sendall(data + b"\n")
 
-# --- Mixed-framing, buffered JSON receiver (line-first, raw_decode fallback) ---
-_JSON_DECODER = json.JSONDecoder()
-_buffers: dict[int, str] = {}  # per-socket input buffers, keyed by fileno()
+# --- Line-delimited, buffered JSON receiver (simple & robust) ---
+_buffers: dict[int, bytes] = {}
 
 def recv_json(sock: socket.socket, timeout_sec: float | None = None) -> dict | None:
     """
-    Receive exactly one JSON object from 'sock'.
-
-    It supports BOTH of the following framings:
-      1) Line-delimited JSON (preferred): one JSON per '\n'
-      2) Raw JSON without newlines: parse one object from the head (raw_decode)
-
-    It is resilient to sticky packets (multiple messages at once) and
-    partial packets (message split across recv's). Returns None on timeout
-    or connection close (without clearing existing buffers).
+    Receive exactly one JSON object framed by a newline.
+    - Maintains a per-socket byte buffer
+    - Returns one parsed JSON object when a full line is available
+    - Returns None on timeout or if connection closes before a full line arrives
     """
     fd = sock.fileno()
-    buf = _buffers.get(fd, "")
+    buf = _buffers.get(fd, b"")
     orig_to = sock.gettimeout()
     try:
         sock.settimeout(timeout_sec)
         while True:
-            # 1) If we have a line, try to parse one JSON per line.
-            if "\n" in buf:
-                line, rest = buf.split("\n", 1)
+            # If we already have a full line, parse it
+            if b"\n" in buf:
+                line, rest = buf.split(b"\n", 1)
                 _buffers[fd] = rest
                 line = line.strip()
                 if not line:
                     continue
                 try:
-                    return json.loads(line)
+                    return json.loads(line.decode("utf-8"))
                 except json.JSONDecodeError:
-                    # Malformed line: drop it and continue
+                    # Malformed line; drop it and continue
                     continue
 
-            # 2) No newline: try raw_decode (supports non-line-framed senders)
-            if buf:
-                try:
-                    obj, idx = _JSON_DECODER.raw_decode(buf)
-                    _buffers[fd] = buf[idx:]  # keep the remainder in buffer
-                    return obj
-                except json.JSONDecodeError:
-                    # Not enough data to parse a full JSON yet; recv more
-                    pass
-
-            # 3) Read more bytes
+            # Need more bytes to complete a full line
             chunk = sock.recv(4096)
             if not chunk:
-                # Connection closed; clear buffer for this fd
-                _buffers[fd] = ""
+                # Peer closed connection
+                _buffers[fd] = b""
                 return None
-            buf += chunk.decode("utf-8", errors="ignore")
+            buf += chunk
             _buffers[fd] = buf
 
     except (socket.timeout, BlockingIOError):
-        # Timeout: keep buffer intact for the next call
+        # Timeout: keep buffer intact for next call
         return None
     finally:
         sock.settimeout(orig_to)
@@ -115,8 +99,8 @@ def recv_json(sock: socket.socket, timeout_sec: float | None = None) -> dict | N
 
 def eval_math_expression(expr: str) -> str:
     """
-    Evaluate a math expression with +, -, *, or /; left-to-right (no precedence).
-    Division uses floor division; div-by-zero yields 0 (matches client).
+    Evaluate a math expression with +, -, *, /; left-to-right (no precedence).
+    Division uses floor division; div-by-zero yields 0.
     """
     tokens = expr.split()
     if not tokens:
