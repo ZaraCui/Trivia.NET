@@ -54,6 +54,7 @@ def send_json(sock: socket.socket, obj: dict) -> None:
 
 
 # --- Line-delimited or bare-JSON receiver (robust) ---
+# --- Line-delimited or bare-JSON receiver (robust & blocking-until-timeout) ---
 _buffers: dict[int, bytearray] = {}
 
 def recv_json(sock: socket.socket, timeout_sec: float | None = None) -> dict | None:
@@ -61,47 +62,66 @@ def recv_json(sock: socket.socket, timeout_sec: float | None = None) -> dict | N
     Receive exactly one JSON object.
     Compatible with:
       1) line-delimited JSON (ends with '\n')
-      2) bare single JSON object (no newline)
-    Returns None on timeout or if a full object isn't available yet.
+      2) single bare JSON object (no newline)
+    Blocks (up to timeout_sec) until a full object is available.
+    Returns None on timeout or if the peer closes before a full object arrives.
     """
     fd = sock.fileno()
     buf = _buffers.setdefault(fd, bytearray())
+    deadline = None if timeout_sec is None else (time.time() + timeout_sec)
     orig_to = sock.gettimeout()
-    try:
-        sock.settimeout(timeout_sec)
 
-        # Try newline-delimited first
+    def try_parse_from_buffer() -> dict | None:
+        # 1) newline-delimited
         nl = buf.find(b"\n")
         if nl != -1:
             line = buf[:nl].strip()
-            del buf[:nl+1]
-            if line:
-                try:
-                    return json.loads(line.decode("utf-8"))
-                except json.JSONDecodeError:
-                    pass  # fallthrough to read more
-
-        # Try whole-buffer-as-one-JSON (no newline)
+            del buf[:nl + 1]
+            if not line:
+                return None
+            try:
+                return json.loads(line.decode("utf-8"))
+            except json.JSONDecodeError:
+                return None
+        # 2) whole-buffer-as-one-JSON
         if buf:
             try:
                 obj = json.loads(buf.decode("utf-8"))
                 buf.clear()
                 return obj
             except json.JSONDecodeError:
-                pass  # need more data
-
-        # Need more bytes
-        chunk = sock.recv(4096)
-        if not chunk:
-            _buffers.pop(fd, None)  # peer closed
-            return None
-        buf.extend(chunk)
-        return None  # let caller poll again
-
-    except (socket.timeout, BlockingIOError):
+                pass
         return None
+
+    try:
+        while True:
+            # Try to parse whatever we already have
+            obj = try_parse_from_buffer()
+            if obj is not None:
+                return obj
+
+            # Check timeout
+            if deadline is not None and time.time() >= deadline:
+                return None
+
+            # Compute a small remaining timeout for this recv
+            per_try = 0.2
+            to = None if deadline is None else max(0.0, min(per_try, deadline - time.time()))
+            sock.settimeout(to)
+
+            try:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    # Peer closed
+                    _buffers.pop(fd, None)
+                    return None
+                buf.extend(chunk)
+            except socket.timeout:
+                # Loop again until overall deadline reached
+                continue
     finally:
         sock.settimeout(orig_to)
+
 
 
 # ---------------------------
