@@ -1,4 +1,4 @@
-# client.py — robust line-based JSON client
+# client.py — robust line-based / bare-JSON client
 
 import argparse
 import json
@@ -33,6 +33,7 @@ def send_json(sock: socket.socket, obj: dict) -> None:
     """
     sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
 
+
 # === robust message reader (works with line-delimited OR bare JSON) ===
 def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
     """
@@ -45,7 +46,7 @@ def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
     nl = buf.find(b"\n")
     if nl != -1:
         line = buf[:nl].strip()
-        del buf[:nl+1]
+        del buf[:nl + 1]
         if not line:
             return None
         try:
@@ -83,7 +84,6 @@ def _iter_messages(sock: socket.socket):
         except socket.timeout:
             # keep waiting; grader might be slow
             continue
-
 
 
 # ----------------- solvers for auto mode -----------------
@@ -212,10 +212,7 @@ def main() -> None:
     # Send HI (newline-terminated)
     send_json(s, {"message_type": "HI", "username": cfg["username"]})
 
-    # Read one JSON object per line (prevents sticky/partial packet issues).
-    f = s.makefile("r", encoding="utf-8", newline="\n")
-
-        # Read messages robustly (line-delimited OR bare JSON)
+    # Read messages robustly (line-delimited OR bare JSON)
     mode = cfg.get("client_mode", "you")
 
     for msg in _iter_messages(s):
@@ -264,7 +261,6 @@ def main() -> None:
             if winners:
                 print(f"The winners are: {winners}")
             break
-
 
     # Clean up the socket
     try:
