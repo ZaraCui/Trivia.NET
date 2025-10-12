@@ -21,6 +21,31 @@ def die(msg: str) -> None:
     sys.exit(1)
 
 
+def parse_argv_for_config(argv: list[str]) -> str | None:
+    """Parse command-line arguments for --config or direct file path."""
+    prog = Path(argv[0]).name
+
+    # Case 1: no arguments
+    if len(argv) == 1:
+        print(f"{prog}: Configuration not provided", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+    # Case 2: '--config' present but missing or empty argument
+    if argv[1] == "--config":
+        if len(argv) == 1 or len(argv) < 3 or not argv[2].strip():
+            print(f"{prog}: Configuration not provided", file=sys.stderr, flush=True)
+            sys.exit(1)
+        return argv[2]
+
+    # Case 3: direct path (e.g., python3 server.py config.json)
+    if len(argv) == 2 and argv[1] != "--config":
+        return argv[1]
+
+    # Fallback
+    print(f"{prog}: Configuration not provided", file=sys.stderr, flush=True)
+    sys.exit(1)
+
+
 def load_config(path_str: str) -> dict:
     """Load configuration JSON or exit with the required error message."""
     if not path_str:
@@ -212,42 +237,10 @@ def leaderboard_state(clients: list[dict], points_singular: str, points_plural: 
 # ---------------------------
 
 def main() -> None:
-    argv = sys.argv[1:]
-    cfg_path = None
-
-    if argv and argv[0] == "--config" and len(argv) == 1:
-        print("server.py: Configuration not provided", file=sys.stderr, flush=True)
-        sys.exit(1)
-
-    if argv:
-        if argv[0] == "--config":
-            if len(argv) > 1 and argv[1].strip():
-                cfg_path = argv[1]
-            else:
-                cfg_path = None
-        elif len(argv) == 1:
-            cfg_path = argv[0]
-
-    # --- Handle missing config or "exit" input ---
-    if cfg_path is None:
-        only_exit = False
-        try:
-            r, _, _ = select.select([sys.stdin], [], [], 0.0)
-        except Exception:
-            r = []
-        if r:
-            data = sys.stdin.read()
-            lines = [ln.strip().lower() for ln in data.splitlines() if ln.strip() != ""]
-            only_exit = (len(lines) == 1 and lines[0] == "exit")
-        if only_exit:
-            return
-        print("server.py: Configuration not provided", file=sys.stderr, flush=True)
-        sys.exit(1)
-
-    # --- Normal config loading ---
+    cfg_path = parse_argv_for_config(sys.argv)
     cfg = load_config(cfg_path)
-    port = cfg["port"]
 
+    port = cfg["port"]
     try:
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -312,4 +305,3 @@ if __name__ == "__main__":
     import time
     time.sleep(2)
     print("Server started successfully (auto-exit for Ed testing)")
-
