@@ -1,37 +1,30 @@
-# client.py (fixed)
-
-import argparse, json, socket, sys
+先看client吧 import argparse, json, socket, sys
 from pathlib import Path
 
-def die(msg): 
-    print(msg, file=sys.stderr); 
-    sys.exit(1)
+def die(msg): print(msg, file=sys.stderr); sys.exit(1)
 
 def load_config(path_str):
-    if not path_str: 
-        die("client.py: Configuration not provided")
+    if not path_str: die("client.py: Configuration not provided")
     p = Path(path_str)
-    if not p.exists(): 
-        die(f"client.py: File {path_str} does not exist")
-    with p.open("r", encoding="utf-8") as f: 
-        return json.load(f)
+    if not p.exists(): die(f"client.py: File {path_str} does not exist")
+    with p.open("r", encoding="utf-8") as f: return json.load(f)
 
 # ----------------- solvers for auto mode -----------------
 _ROMAN = {"I":1,"V":5,"X":10,"L":50,"C":100,"D":500,"M":1000}
 
 def solve_math(expr: str) -> str:
-    # Match server semantics: left-to-right, '/' uses integer floor division; div-by-zero -> 0
+    # Evaluate +,-,*,/ left-to-right (matches our generator bias; server uses exact match)
     tokens = expr.split()
-    if not tokens:
-        return "0"
     val = int(tokens[0])
     i = 1
     while i + 1 < len(tokens):
         op = tokens[i]; rhs = int(tokens[i+1])
-        if   op == "+": val += rhs
+        if op == "+": val += rhs
         elif op == "-": val -= rhs
         elif op == "*": val *= rhs
-        elif op == "/": val = (val // rhs) if rhs != 0 else 0
+        elif op == "/": 
+            # integer division if divisible, else float truncated to int per simple rules
+            val = int(val / rhs)
         i += 2
     return str(val)
 
@@ -84,79 +77,52 @@ def main():
     if cfg.get("client_mode") == "ai" and not cfg.get("ollama_config"):
         die("client.py: Missing values for Ollama configuration")
 
-    # Read CONNECT command from stdin
     line = input().strip()
-    if not line.startswith("CONNECT "): 
-        return
+    if not line.startswith("CONNECT "): return
     hostport = line.split(" ",1)[1]
     host, port = hostport.split(":")
     try:
         port = int(port)
         s = socket.create_connection((host, port), timeout=3)
     except Exception:
-        print("Connection failed")
-        return
+        print("Connection failed"); return
 
-    # Send HI (newline-terminated for line-framed protocols)
-    hi = {"message_type":"HI","username": cfg["username"]}
-    s.sendall(json.dumps(hi).encode("utf-8") + b"\n")
+    # Send HI
+    s.sendall(json.dumps({"message_type":"HI","username": cfg["username"]}).encode("utf-8"))
 
-    # Line-based reader (server sends JSON lines ending with '\n')
-    f = s.makefile("r", encoding="utf-8", newline="\n")
-
-    mode = cfg.get("client_mode","you")
-    skip_next_question = False  # If previous RESULT was incorrect, skip the next QUESTION
-
-    for line in f:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
+    # Message loop
+    while True:
+        data = s.recv(65536)
+        if not data: break
+        msg = json.loads(data.decode("utf-8"))
         mtype = msg.get("message_type")
 
         if mtype == "READY":
-            info = msg.get("info","")
-            if info: print(info)
+            print(msg["info"])
 
         elif mtype == "QUESTION":
-            # Respect "skip next question" rule
-            if skip_next_question:
-                skip_next_question = False
-                continue
-
-            # Print full text (exactly as provided)
-            trivia = msg.get("trivia_question","")
-            if trivia: print(trivia)
-
+            # Print full text
+            if "trivia_question" in msg: print(msg["trivia_question"])
+            # Decide answer by mode
             short_q = msg.get("short_question","")
-            qtype   = msg.get("question_type","")
-
+            q_text = msg.get("trivia_question","")
+            # Infer qtype from text inside parentheses: 'Question X (Type):'
+            qtype = ""
+            if "(" in q_text and "):" in q_text:
+                qtype = q_text.split("(")[1].split("):")[0]
+            answer = ""
+            mode = cfg.get("client_mode","you")
             if mode == "you":
-                try:
-                    answer = input().strip()
-                except EOFError:
-                    answer = ""
+                answer = input().strip()
             elif mode == "auto":
                 answer = auto_answer(qtype, short_q)
             elif mode == "ai":
-                # Baseline: not calling external APIs; send blank
+                # For this baseline we don't call external APIs; just send blank
                 answer = ""
-            else:
-                answer = ""
-
-            # Send ANSWER (newline-terminated)
-            ans_msg = {"message_type":"ANSWER","answer": answer}
-            s.sendall(json.dumps(ans_msg).encode("utf-8") + b"\n")
+            s.sendall(json.dumps({"message_type":"ANSWER","answer": answer}).encode("utf-8"))
 
         elif mtype == "RESULT":
             print(msg.get("feedback",""))
-            # If incorrect, skip answering the NEXT question
-            if msg.get("correct") is False:
-                skip_next_question = True
 
         elif mtype == "LEADERBOARD":
             state = msg.get("state","")
@@ -169,10 +135,7 @@ def main():
             if winners: print(f"The winners are: {winners}")
             break
 
-    try:
-        s.close()
-    except Exception:
-        pass
+    s.close()
 
 if __name__=="__main__":
     main()
