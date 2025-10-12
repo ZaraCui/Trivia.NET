@@ -122,7 +122,6 @@ def recv_json(sock: socket.socket, timeout_sec: float | None = None) -> dict | N
         sock.settimeout(orig_to)
 
 
-
 # ---------------------------
 # Answer checkers
 # ---------------------------
@@ -153,7 +152,6 @@ def eval_math_expression(expr: str) -> str:
 
 
 _ROMAN_MAP = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
-
 
 def roman_to_int(s: str) -> str:
     """Convert a Roman numeral (I–MMMCMXCIX) into a decimal string."""
@@ -270,19 +268,19 @@ def play_rounds(clients: list[dict], cfg: dict) -> None:
         short_q = generate_short_question(qtype)
         fmt = qformats.get(qtype, "{}")
         formatted_q = fmt.format(short_q)
-        # IMPORTANT: no colon after the header line
+        # Header + body (the colon here is fine; clients don't parse this)
         trivia_text = f"{qword} {idx} ({qtype}):\n{formatted_q}"
 
         correct = compute_correct_answer(qtype, short_q)
 
-        # Send QUESTION
+        # Send QUESTION  <<< IMPORTANT: include 'question_type'
         question_msg = {
             "message_type": "QUESTION",
+            "question_type": qtype,            # <-- added back
             "trivia_question": trivia_text,
             "short_question": short_q,
             "time_limit": per_q_seconds,
         }
-
         broadcast(clients, question_msg)
 
         # Collect answers until everyone answered or time runs out
