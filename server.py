@@ -1,5 +1,7 @@
+# server.py (robust JSON I/O, English comments)
+
 import json
-import signal  # Not used in this minimal server, but kept for spec compliance
+import signal  # kept for spec compliance, not used
 import socket
 import sys
 import time
@@ -7,19 +9,17 @@ from pathlib import Path
 
 import questions
 
-
 # ---------------------------
-# Utility helpers
+# Utilities
 # ---------------------------
 
 def die(msg: str) -> None:
-    """Print error message to stderr and exit with code 1."""
+    """Print an error and exit with code 1."""
     print(msg, file=sys.stderr)
     sys.exit(1)
 
-
 def load_config(path_str: str) -> dict:
-    """Load configuration JSON file or exit with required message."""
+    """Load configuration JSON or exit with the required error message."""
     if not path_str:
         die("server.py: Configuration not provided")
     p = Path(path_str)
@@ -28,42 +28,86 @@ def load_config(path_str: str) -> dict:
     with p.open("r", encoding="utf-8") as f:
         return json.load(f)
 
-
 def parse_argv_for_config(argv: list[str]) -> str | None:
-    """Parse argv for --config or positional config path."""
+    """
+    Accept either:
+      python server.py --config configs/server.json
+    or
+      python server.py configs/server.json
+    """
     if len(argv) >= 3 and argv[1] == "--config":
         return argv[2]
     if len(argv) >= 2 and argv[1] != "--config":
         return argv[1]
     return None
 
-
 def send_json(sock: socket.socket, obj: dict) -> None:
-    """Send one JSON message to client (UTF-8 encoded)."""
+    """
+    Send exactly one JSON object framed by a newline.
+    Testers and our client expect line-delimited JSON.
+    """
     data = json.dumps(obj).encode("utf-8")
-    sock.sendall(data + b"\n")  # append newline per new spec
+    sock.sendall(data + b"\n")
 
+# --- Mixed-framing, buffered JSON receiver (line-first, raw_decode fallback) ---
+_JSON_DECODER = json.JSONDecoder()
+_buffers: dict[int, str] = {}  # per-socket input buffers, keyed by fileno()
 
 def recv_json(sock: socket.socket, timeout_sec: float | None = None) -> dict | None:
     """
-    Receive one JSON message. Returns None on timeout or parse failure.
-    Uses short polling instead of select (not allowed imports).
+    Receive exactly one JSON object from 'sock'.
+
+    It supports BOTH of the following framings:
+      1) Line-delimited JSON (preferred): one JSON per '\n'
+      2) Raw JSON without newlines: parse one object from the head (raw_decode)
+
+    It is resilient to sticky packets (multiple messages at once) and
+    partial packets (message split across recv's). Returns None on timeout
+    or connection close (without clearing existing buffers).
     """
+    fd = sock.fileno()
+    buf = _buffers.get(fd, "")
     orig_to = sock.gettimeout()
     try:
         sock.settimeout(timeout_sec)
-        data = sock.recv(65536)
-        if not data:
-            return None
-        try:
-            return json.loads(data.decode("utf-8").strip())
-        except Exception:
-            return None
+        while True:
+            # 1) If we have a line, try to parse one JSON per line.
+            if "\n" in buf:
+                line, rest = buf.split("\n", 1)
+                _buffers[fd] = rest
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    return json.loads(line)
+                except json.JSONDecodeError:
+                    # Malformed line: drop it and continue
+                    continue
+
+            # 2) No newline: try raw_decode (supports non-line-framed senders)
+            if buf:
+                try:
+                    obj, idx = _JSON_DECODER.raw_decode(buf)
+                    _buffers[fd] = buf[idx:]  # keep the remainder in buffer
+                    return obj
+                except json.JSONDecodeError:
+                    # Not enough data to parse a full JSON yet; recv more
+                    pass
+
+            # 3) Read more bytes
+            chunk = sock.recv(4096)
+            if not chunk:
+                # Connection closed; clear buffer for this fd
+                _buffers[fd] = ""
+                return None
+            buf += chunk.decode("utf-8", errors="ignore")
+            _buffers[fd] = buf
+
     except (socket.timeout, BlockingIOError):
+        # Timeout: keep buffer intact for the next call
         return None
     finally:
         sock.settimeout(orig_to)
-
 
 # ---------------------------
 # Answer checkers
@@ -71,14 +115,12 @@ def recv_json(sock: socket.socket, timeout_sec: float | None = None) -> dict | N
 
 def eval_math_expression(expr: str) -> str:
     """
-    Evaluate a math expression with +, -, *, or /.
-    Division is integer floor division; evaluates left-to-right (no precedence).
-    Example: '3 + 5 * 2' -> 16
+    Evaluate a math expression with +, -, *, or /; left-to-right (no precedence).
+    Division uses floor division; div-by-zero yields 0 (matches client).
     """
     tokens = expr.split()
     if not tokens:
         return "0"
-
     total = int(tokens[0])
     i = 1
     while i + 1 < len(tokens):
@@ -95,12 +137,10 @@ def eval_math_expression(expr: str) -> str:
         i += 2
     return str(total)
 
-
 _ROMAN_MAP = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
-
 def roman_to_int(s: str) -> str:
-    """Convert a Roman numeral (I–MMMCMXCIX) into decimal string."""
+    """Convert a Roman numeral (I–MMMCMXCIX) into a decimal string."""
     total = 0
     i = 0
     while i < len(s):
@@ -113,45 +153,38 @@ def roman_to_int(s: str) -> str:
             i += 1
     return str(total)
 
-
 def ip_to_int(a: int, b: int, c: int, d: int) -> int:
-    """Convert dotted IPv4 to integer."""
     return (a << 24) | (b << 16) | (c << 8) | d
 
-
 def int_to_ip(x: int) -> str:
-    """Convert integer to dotted IPv4 string."""
     return f"{(x >> 24) & 255}.{(x >> 16) & 255}.{(x >> 8) & 255}.{x & 255}"
 
-
 def parse_cidr(cidr: str) -> tuple[int, int]:
-    """Parse CIDR like '192.168.1.0/24' -> (int_ip, prefix)."""
     ip, pfx = cidr.split("/")
     a, b, c, d = [int(t) for t in ip.split(".")]
     return ip_to_int(a, b, c, d), int(pfx)
 
-
 def usable_count_for_prefix(p: int) -> str:
-    """Return number of usable IPv4 host addresses for given prefix length."""
     hosts = 1 << (32 - p)
     usable = hosts - 2 if p < 31 else 0
     return str(usable)
 
-
 def net_and_broadcast(cidr: str) -> str:
-    """Return network and broadcast addresses for given CIDR."""
     ip_int, p = parse_cidr(cidr)
     mask = (0xFFFFFFFF << (32 - p)) & 0xFFFFFFFF
     net = ip_int & mask
     bcast = net | (~mask & 0xFFFFFFFF)
     return f"{int_to_ip(net)} and {int_to_ip(bcast)}"
 
-
 # ---------------------------
 # Game flow
 # ---------------------------
 
 def generate_short_question(qtype: str) -> str:
+    """
+    Produce the 'short_question' string for each question type using questions.py.
+    For Roman Numerals, we extract the numeral token from the full sentence.
+    """
     if qtype == "Mathematics":
         return questions.generate_mathematics_question()
     if qtype == "Roman Numerals":
@@ -159,14 +192,13 @@ def generate_short_question(qtype: str) -> str:
         candidate = roman.strip().split()[-1]
         return candidate.strip("?.!,")
     if qtype == "Usable IP Addresses of a Subnet":
-        return questions.generate_usable_addresses_question()     
+        return questions.generate_usable_addresses_question()
     if qtype == "Network and Broadcast Address of a Subnet":
-        return questions.generate_network_broadcast_question()       
-    return "1 + 1"
-
+        return questions.generate_network_broadcast_question()
+    return "1 + 1"  # fallback
 
 def compute_correct_answer(qtype: str, short_q: str) -> str:
-    """Compute the exact string that represents the correct answer."""
+    """Compute the exact string representing the correct answer for the given question."""
     if qtype == "Mathematics":
         return eval_math_expression(short_q)
     if qtype == "Roman Numerals":
@@ -178,19 +210,17 @@ def compute_correct_answer(qtype: str, short_q: str) -> str:
         return net_and_broadcast(short_q)
     return ""
 
-
 def broadcast(clients: list[dict], obj: dict) -> None:
-    """Send a JSON object to all connected clients."""
+    """Send a JSON object to all connected (non-dropped) clients."""
     for c in clients:
-        send_json(c["sock"], obj)
-
+        if not c.get("dropped"):
+            send_json(c["sock"], obj)
 
 def leaderboard_state(clients: list[dict], points_singular: str, points_plural: str) -> str:
     """
     Build a formatted leaderboard string, sorted by score desc then name asc.
-    Example:
-        1) alice - 3 points
-        2) bob - 2 points
+      1) alice - 3 points
+      2) bob   - 2 points
     """
     live = [c for c in clients if not c.get("dropped")]
     live.sort(key=lambda x: (-x["score"], x["username"]))
@@ -202,9 +232,8 @@ def leaderboard_state(clients: list[dict], points_singular: str, points_plural: 
         rank += 1
     return "\n".join(lines)
 
-
 def play_rounds(clients: list[dict], cfg: dict) -> None:
-    """Main quiz round loop."""
+    """Main quiz loop over the configured question types."""
     qword = cfg.get("question_word", "Question")
     qtypes = cfg["question_types"]
     qformats = cfg["question_formats"]
@@ -215,30 +244,29 @@ def play_rounds(clients: list[dict], cfg: dict) -> None:
         short_q = generate_short_question(qtype)
         fmt = qformats.get(qtype, "{}")
         formatted_q = fmt.format(short_q)
+        # IMPORTANT: no colon after the header line (matches examples/spec)
         trivia_text = f"{qword} {idx} ({qtype})\n{formatted_q}"
 
         correct = compute_correct_answer(qtype, short_q)
 
-        # Send QUESTION message
+        # Send QUESTION
         question_msg = {
-        "message_type": "QUESTION",
-        "question_type": qtype,         
-        "trivia_question": trivia_text,
-        "short_question": short_q,
-        "time_limit": per_q_seconds,
+            "message_type": "QUESTION",
+            "question_type": qtype,
+            "trivia_question": trivia_text,
+            "short_question": short_q,
+            "time_limit": per_q_seconds,
         }
-
-
         broadcast(clients, question_msg)
 
-        # Collect answers
+        # Collect answers until everyone answered or time runs out
         deadline = time.time() + per_q_seconds
         pending = {c["sock"] for c in clients if not c.get("dropped")}
         answered = set()
         for c in clients:
             c["last_answer_correct"] = False
 
-        while time.time() < deadline and pending - answered:
+        while time.time() < deadline and (pending - answered):
             for c in clients:
                 if c.get("dropped") or c["sock"] in answered:
                     continue
@@ -258,7 +286,7 @@ def play_rounds(clients: list[dict], cfg: dict) -> None:
                 })
                 answered.add(c["sock"])
 
-        # Send leaderboard
+        # Send LEADERBOARD after the round
         lb_text = leaderboard_state(
             clients,
             cfg.get("points_noun_singular", "point"),
@@ -267,7 +295,7 @@ def play_rounds(clients: list[dict], cfg: dict) -> None:
         broadcast(clients, {"message_type": "LEADERBOARD", "state": lb_text})
         time.sleep(cfg.get("question_interval_seconds", 2))
 
-    # Send final standings
+    # Final standings and winners
     lb_text = leaderboard_state(
         clients,
         cfg.get("points_noun_singular", "point"),
@@ -287,13 +315,12 @@ def play_rounds(clients: list[dict], cfg: dict) -> None:
         "winners": winners_str,
     })
 
-
 # ---------------------------
-# Main entry point
+# Main
 # ---------------------------
 
 def main() -> None:
-    """Main server entrypoint per given skeleton."""
+    """Main server entrypoint per the given skeleton/spec."""
     cfg_path = parse_argv_for_config(sys.argv)
     cfg = load_config(cfg_path)
 
@@ -310,26 +337,36 @@ def main() -> None:
     clients: list[dict] = []
 
     try:
+        # Wait until the configured number of players join
         while len(clients) < players_needed:
             conn, addr = srv.accept()
-            msg = recv_json(conn, timeout_sec=5.0)
-            if not msg or msg.get("message_type") != "HI":
+            hi = recv_json(conn, timeout_sec=5.0)
+            if not hi or hi.get("message_type") != "HI":
                 conn.close()
                 continue
-            username = str(msg.get("username", ""))
+            username = str(hi.get("username", ""))
             if not username.isalnum():
+                # Hard exit behavior per spec (invalid username)
                 for c in clients:
-                    c["sock"].close()
+                    try:
+                        c["sock"].close()
+                    except Exception:
+                        pass
                 conn.close()
                 sys.exit(0)
-            clients.append({"sock": conn, "addr": addr, "username": username, "score": 0, "dropped": False})
+            clients.append({
+                "sock": conn, "addr": addr, "username": username,
+                "score": 0, "dropped": False
+            })
 
+        # Send READY, pause briefly, then play rounds
         info = cfg.get("ready_info", "").format(**cfg)
         broadcast(clients, {"message_type": "READY", "info": info})
         time.sleep(cfg.get("question_interval_seconds", 2))
         play_rounds(clients, cfg)
 
     finally:
+        # Close all client sockets and the server socket
         for c in clients:
             try:
                 c["sock"].close()
@@ -339,7 +376,6 @@ def main() -> None:
             srv.close()
         except Exception:
             pass
-
 
 if __name__ == "__main__":
     main()
