@@ -152,7 +152,7 @@ def net_and_broadcast(cidr: str) -> str:
 # ---------------------------
 
 def generate_short_question(qtype: str) -> str:
-    """Use questions.py generators to build the short_question string."""
+    def generate_short_question(qtype: str) -> str:
     if qtype == "Mathematics":
         return questions.generate_mathematics_question()
     if qtype == "Roman Numerals":
@@ -160,10 +160,10 @@ def generate_short_question(qtype: str) -> str:
         candidate = roman.strip().split()[-1]
         return candidate.strip("?.!,")
     if qtype == "Usable IP Addresses of a Subnet":
-        return questions.generate_subnet_usable_question()
+        return questions.generate_usable_addresses_question()     
     if qtype == "Network and Broadcast Address of a Subnet":
-        return questions.generate_subnet_net_broadcast_question()
-    return "1 + 1"  # fallback
+        return questions.generate_network_broadcast_question()       
+    return "1 + 1"
 
 
 def compute_correct_answer(qtype: str, short_q: str) -> str:
