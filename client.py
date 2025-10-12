@@ -241,11 +241,11 @@ def main() -> None:
 
         elif mtype == "FINISHED":
             final = msg.get("final_standings", "")
-            winners = msg.get("winners", "")
+            winner = msg.get("winner", "")
             if final:
                 print(final)
-            if winners:
-                print(f"The winners are: {winners}")
+            if winner:
+                print(f"The winner is: {winner}")
             try:
                 s.shutdown(socket.SHUT_RDWR)
             except Exception:
