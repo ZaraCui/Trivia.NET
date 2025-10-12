@@ -16,7 +16,7 @@ import questions
 
 def die(msg: str) -> None:
     """Print an error and exit with code 1."""
-    print(msg, file=sys.stderr)
+    print(msg)
     sys.exit(1)
 
 

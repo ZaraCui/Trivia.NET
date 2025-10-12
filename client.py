@@ -35,7 +35,7 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
 
 def die(msg: str) -> None:
     """Print an error to stderr and exit."""
-    print(msg, file=sys.stderr)
+    print(msg)
     sys.exit(1)
 
 
