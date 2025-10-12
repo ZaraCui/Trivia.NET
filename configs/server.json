@@ -10,9 +10,7 @@
     "Usable IP Addresses of a Subnet": "{}",
     "Network and Broadcast Address of a Subnet": "{}"
   },
-  "question_types": [
-    "Mathematics"
-  ],
+  "question_types": ["Mathematics"],
   "ready_info": "Get ready: 1 question, 4 seconds each.",
   "correct_answer": "Correct!",
   "incorrect_answer": "Incorrect."
