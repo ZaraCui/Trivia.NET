@@ -160,17 +160,17 @@ def auto_answer(qtype: str, short_q: str) -> str:
 # ----------------- client main -----------------
 
 def main() -> None:
-    # --- Ed-compatible argument parsing ---
     argv = sys.argv[1:]
     cfg_path = None
-    override_mode = None
+
+    if argv and argv[0] == "--config" and len(argv) == 1:
+        print("server.py: Configuration not provided", file=sys.stderr, flush=True)
+        sys.exit(1)
 
     if argv:
         if argv[0] == "--config":
             if len(argv) > 1 and argv[1].strip():
                 cfg_path = argv[1]
-                if len(argv) > 3 and argv[2] == "--mode":
-                    override_mode = argv[3]
             else:
                 cfg_path = None
         elif len(argv) == 1:

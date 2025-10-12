@@ -215,6 +215,10 @@ def main() -> None:
     argv = sys.argv[1:]
     cfg_path = None
 
+    if argv and argv[0] == "--config" and len(argv) == 1:
+        print("server.py: Configuration not provided", file=sys.stderr, flush=True)
+        sys.exit(1)
+
     if argv:
         if argv[0] == "--config":
             if len(argv) > 1 and argv[1].strip():
