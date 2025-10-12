@@ -31,18 +31,14 @@ def load_config(path_str: str) -> dict:
         return json.load(f)
 
 def parse_argv_for_config(argv: list[str]) -> str | None:
-    """
-    Parse command-line arguments for the configuration file.
-    According to Ed test requirements, always print a status line.
-    """
-    prog = Path(argv[0]).name  # e.g., client.py or server.py
+    prog = Path(argv[0]).name
 
     # Case 1: no args
     if len(argv) == 1:
         print(f"{prog}: Configuration not provided", file=sys.stderr)
         sys.exit(1)
 
-    # Case 2: only '--config' with no path
+    # Case 2: only '--config'
     if len(argv) == 2 and argv[1] == "--config":
         print(f"{prog}: Configuration not provided", file=sys.stderr)
         sys.exit(1)
@@ -52,12 +48,11 @@ def parse_argv_for_config(argv: list[str]) -> str | None:
         print(f"{prog}: Configuration not provided", file=sys.stderr)
         return argv[2]
 
-    # Case 4: direct path
+    # Case 4: direct file path — **DO NOT PRINT**
     if len(argv) == 2 and argv[1] != "--config":
-        print(f"{prog}: Configuration not provided", file=sys.stderr)
         return argv[1]
 
-    # Case 5: invalid usage
+    # Case 5: anything else
     print(f"{prog}: Configuration not provided", file=sys.stderr)
     sys.exit(1)
 
