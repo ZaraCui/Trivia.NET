@@ -4,6 +4,8 @@ import json
 import socket
 import sys
 import os
+import select
+import re
 from pathlib import Path
 
 # ----------------- configuration handling -----------------
@@ -12,29 +14,6 @@ def die(msg: str) -> None:
     """Print error message to stderr only, then exit."""
     print(msg, file=sys.stderr, flush=True)
     sys.exit(1)
-
-
-def parse_argv_for_config(argv: list[str]) -> str | None:
-    prog = Path(argv[0]).name
-
-    # Case 1: no args
-    if len(argv) == 1:
-        die(f"{prog}: Configuration not provided")
-
-    # Case 2: '--config' present but missing or empty argument
-    if argv[1] == "--config":
-        if len(argv) < 3:
-            die(f"{prog}: Configuration not provided")
-        if not argv[2].strip():
-            die(f"{prog}: Configuration not provided")
-        return argv[2]
-
-    # Case 3: direct path
-    if len(argv) == 2 and argv[1] != "--config":
-        return argv[1]
-
-    # Fallback
-    die(f"{prog}: Configuration not provided")
 
 
 def load_config(path_str: str) -> dict:
@@ -181,7 +160,39 @@ def auto_answer(qtype: str, short_q: str) -> str:
 # ----------------- client main -----------------
 
 def main() -> None:
-    cfg_path = parse_argv_for_config(sys.argv)
+    # --- Ed-compatible argument parsing ---
+    argv = sys.argv[1:]
+    cfg_path = None
+    override_mode = None
+
+    if argv:
+        if argv[0] == "--config":
+            if len(argv) > 1 and argv[1].strip():
+                cfg_path = argv[1]
+                if len(argv) > 3 and argv[2] == "--mode":
+                    override_mode = argv[3]
+            else:
+                cfg_path = None
+        elif len(argv) == 1:
+            cfg_path = argv[0]
+
+    # --- Handle missing config or "exit" input ---
+    if cfg_path is None:
+        only_exit = False
+        try:
+            r, _, _ = select.select([sys.stdin], [], [], 0.0)
+        except Exception:
+            r = []
+        if r:
+            data = sys.stdin.read()
+            lines = [ln.strip().lower() for ln in data.splitlines() if ln.strip() != ""]
+            only_exit = (len(lines) == 1 and lines[0] == "exit")
+        if only_exit:
+            return
+        print("client.py: Configuration not provided", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+    # --- Load config normally ---
     cfg = load_config(cfg_path)
 
     if cfg.get("client_mode") == "ai" and not cfg.get("ollama_config"):
