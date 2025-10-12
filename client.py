@@ -1,4 +1,4 @@
-先看client吧 import argparse, json, socket, sys
+import argparse, json, socket, sys
 from pathlib import Path
 
 def die(msg): print(msg, file=sys.stderr); sys.exit(1)
