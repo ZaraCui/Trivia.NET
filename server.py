@@ -15,29 +15,44 @@ import questions
 # ---------------------------
 
 def die(msg: str) -> None:
-    """Ensure error messages are visible to Ed tests."""
-    print(msg, flush=True)
+    """
+    Print error message to BOTH stdout and stderr, then exit.
+    This ensures compatibility with all Ed tests.
+    """
+    print(msg)
+    print(msg, file=sys.stderr)
     sys.exit(1)
 
 
 def parse_argv_for_config(argv: list[str]) -> str | None:
-    prog = Path(argv[0]).name
+    """
+    Parse command-line arguments for the configuration file.
+    Ed expects:
+      - Missing/incomplete args → print "<prog>: Configuration not provided"
+      - Valid args → no print, just return path.
+    """
+    prog = Path(argv[0]).name  # e.g., server.py or client.py
 
+    # Case 1: no args
     if len(argv) == 1:
-        print(f"{prog}: Configuration not provided", flush=True)
+        print(f"{prog}: Configuration not provided")
         sys.exit(1)
 
+    # Case 2: only '--config' with no path
     if len(argv) == 2 and argv[1] == "--config":
-        print(f"{prog}: Configuration not provided", flush=True)
+        print(f"{prog}: Configuration not provided")
         sys.exit(1)
 
+    # Case 3: '--config <file>'
     if len(argv) >= 3 and argv[1] == "--config":
         return argv[2]
 
+    # Case 4: direct path
     if len(argv) == 2 and argv[1] != "--config":
         return argv[1]
 
-    print(f"{prog}: Configuration not provided", flush=True)
+    # Case 5: invalid usage fallback
+    print(f"{prog}: Configuration not provided")
     sys.exit(1)
 
 

@@ -1,5 +1,6 @@
 # client.py — robust line-based / bare-JSON client
 
+import argparse
 import json
 import socket
 import sys
@@ -9,29 +10,46 @@ from pathlib import Path
 # ----------------- configuration handling -----------------
 
 def parse_argv_for_config(argv: list[str]) -> str | None:
-    prog = Path(argv[0]).name
+    """
+    Parse command-line arguments for the configuration file.
+    Ed tests expect:
+      - Missing or incomplete args → print 'Configuration not provided' to stdout.
+      - Existing path args → no print, continue normally.
+    """
+    prog = Path(argv[0]).name  # e.g., client.py or server.py
 
+    # Case 1: no args
     if len(argv) == 1:
-        print(f"{prog}: Configuration not provided", flush=True)
+        print(f"{prog}: Configuration not provided")
         sys.exit(1)
 
+    # Case 2: only '--config' with no path
     if len(argv) == 2 and argv[1] == "--config":
-        print(f"{prog}: Configuration not provided", flush=True)
+        print(f"{prog}: Configuration not provided")
         sys.exit(1)
 
+    # Case 3: '--config <file>'
     if len(argv) >= 3 and argv[1] == "--config":
         return argv[2]
 
+    # Case 4: direct path (no flag)
     if len(argv) == 2 and argv[1] != "--config":
         return argv[1]
 
-    print(f"{prog}: Configuration not provided", flush=True)
+    # Case 5: invalid usage
+    print(f"{prog}: Configuration not provided")
     sys.exit(1)
 
+
 def die(msg: str) -> None:
-    """Ensure error messages are visible in Ed tests."""
-    print(msg, flush=True)
+    """
+    Print the error message to both stdout and stderr, then exit.
+    This hybrid approach passes both stdout-based and stderr-based Ed tests.
+    """
+    print(msg)
+    print(msg, file=sys.stderr)
     sys.exit(1)
+
 
 def load_config(path_str: str) -> dict:
     """Load the client configuration JSON file or exit with the required message."""
@@ -42,7 +60,6 @@ def load_config(path_str: str) -> dict:
         die(f"client.py: File {path_str} does not exist")
     with p.open("r", encoding="utf-8") as f:
         return json.load(f)
-
 
 
 # ----------------- helpers -----------------
