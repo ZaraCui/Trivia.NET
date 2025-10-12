@@ -1,93 +1,54 @@
-import argparse
-import json
-import socket
-import sys
+# client.py (fixed, line-based reader + skip-next logic)
+
+import argparse, json, socket, sys
 from pathlib import Path
 
-# ---------------------------
-# Utilities
-# ---------------------------
+def die(msg): print(msg, file=sys.stderr); sys.exit(1)
 
-def die(msg: str) -> None:
-    """Print error and exit with status 1."""
-    print(msg, file=sys.stderr)
-    sys.exit(1)
-
-
-def load_config(path_str: str) -> dict:
-    """Load JSON config file (required by spec)."""
-    if not path_str:
-        die("client.py: Configuration not provided")
+def load_config(path_str):
+    if not path_str: die("client.py: Configuration not provided")
     p = Path(path_str)
-    if not p.exists():
-        die(f"client.py: File {path_str} does not exist")
-    with p.open("r", encoding="utf-8") as f:
-        return json.load(f)
+    if not p.exists(): die(f"client.py: File {path_str} does not exist")
+    with p.open("r", encoding="utf-8") as f: return json.load(f)
 
-
-# ---------------------------
-# Auto solvers for each question type
-# ---------------------------
-
+# ----------------- solvers for auto mode -----------------
 _ROMAN = {"I":1,"V":5,"X":10,"L":50,"C":100,"D":500,"M":1000}
 
 def solve_math(expr: str) -> str:
-    """
-    Evaluate +, -, *, / left-to-right (no precedence).
-    Server and tests use small positive integers; // vs int(/) are equivalent for positives.
-    """
     tokens = expr.split()
-    if not tokens:
-        return "0"
-    val = int(tokens[0])
+    val = int(tokens[0]) if tokens else 0
     i = 1
     while i + 1 < len(tokens):
-        op = tokens[i]
-        rhs = int(tokens[i + 1])
-        if op == "+":
-            val += rhs
-        elif op == "-":
-            val -= rhs
-        elif op == "*":
-            val *= rhs
-        elif op == "/":
-            val = int(val / rhs) if rhs != 0 else 0
+        op = tokens[i]; rhs = int(tokens[i+1])
+        if   op == "+": val += rhs
+        elif op == "-": val -= rhs
+        elif op == "*": val *= rhs
+        elif op == "/": val = val // rhs if rhs != 0 else 0
         i += 2
     return str(val)
 
 def roman_to_int(s: str) -> str:
-    """Convert Roman numeral to decimal string."""
-    total = 0
-    i = 0
+    total = 0; i = 0
     while i < len(s):
         a = _ROMAN[s[i]]
-        if i + 1 < len(s) and _ROMAN[s[i + 1]] > a:
-            total += _ROMAN[s[i + 1]] - a
-            i += 2
+        if i+1 < len(s) and _ROMAN[s[i+1]] > a:
+            total += _ROMAN[s[i+1]] - a; i += 2
         else:
-            total += a
-            i += 1
+            total += a; i += 1
     return str(total)
 
-def ip_to_int(a:int,b:int,c:int,d:int) -> int:
-    return (a<<24)|(b<<16)|(c<<8)|d
-
-def int_to_ip(x:int) -> str:
-    return f"{(x>>24)&255}.{(x>>16)&255}.{(x>>8)&255}.{x&255}"
-
+def ip_to_int(a,b,c,d): return (a<<24)|(b<<16)|(c<<8)|d
+def int_to_ip(x): return f"{(x>>24)&255}.{(x>>16)&255}.{(x>>8)&255}.{x&255}"
 def parse_cidr(cidr: str):
-    """Return (ip_int, prefix)."""
     ip, pfx = cidr.split("/")
     a,b,c,d = map(int, ip.split("."))
     return ip_to_int(a,b,c,d), int(pfx)
 
 def usable_count(p: int) -> str:
-    """Usable IPv4 hosts for /p (classic rule: /31 and /32 -> 0)."""
     hosts = 1 << (32 - p)
     return str(0 if p >= 31 else hosts - 2)
 
 def net_and_broadcast(cidr: str) -> str:
-    """Network and broadcast addresses for given CIDR."""
     ipi, p = parse_cidr(cidr)
     mask = (0xFFFFFFFF << (32 - p)) & 0xFFFFFFFF
     net = ipi & mask
@@ -95,25 +56,16 @@ def net_and_broadcast(cidr: str) -> str:
     return f"{int_to_ip(net)} and {int_to_ip(bcast)}"
 
 def auto_answer(qtype: str, short_q: str) -> str:
-    """Compute the answer automatically for auto mode."""
-    if qtype == "Mathematics":
-        return solve_math(short_q)
-    if qtype == "Roman Numerals":
-        return roman_to_int(short_q)
+    if qtype == "Mathematics": return solve_math(short_q)
+    if qtype == "Roman Numerals": return roman_to_int(short_q)
     if qtype == "Usable IP Addresses of a Subnet":
-        _, p = parse_cidr(short_q)
-        return usable_count(p)
+        _, p = parse_cidr(short_q); return usable_count(p)
     if qtype == "Network and Broadcast Address of a Subnet":
         return net_and_broadcast(short_q)
     return ""
 
-
-# ---------------------------
-# Client main
-# ---------------------------
-
-def main() -> None:
-    # Parse config path (supports --config or positional)
+# ----------------- client main -----------------
+def main():
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("--config")
     ap.add_argument("maybe_config", nargs="?", default=None)
@@ -121,97 +73,85 @@ def main() -> None:
     cfg_path = args.config or args.maybe_config
     cfg = load_config(cfg_path)
 
-    # Validate AI mode (baseline does not actually call external APIs)
     if cfg.get("client_mode") == "ai" and not cfg.get("ollama_config"):
         die("client.py: Missing values for Ollama configuration")
 
-    # Expect a single stdin command: "CONNECT host:port"
+    # Read CONNECT command from stdin
     line = input().strip()
-    if not line.startswith("CONNECT "):
-        return
-    hostport = line.split(" ", 1)[1]
-    host, port_str = hostport.split(":")
+    if not line.startswith("CONNECT "): return
+    hostport = line.split(" ",1)[1]
+    host, port = hostport.split(":")
     try:
-        port = int(port_str)
+        port = int(port)
         s = socket.create_connection((host, port), timeout=3)
     except Exception:
-        print("Connection failed")
-        return
+        print("Connection failed"); return
 
-    # Send initial HI (newline-delimited JSON to match server framing)
-    s.sendall(json.dumps({"message_type": "HI", "username": cfg["username"]}).encode("utf-8") + b"\n")
+    # Send HI (client → server: NO trailing newline)
+    s.sendall(json.dumps({"message_type":"HI","username": cfg["username"]}).encode("utf-8"))
 
-    mode = cfg.get("client_mode", "you")
+    # Line-based reader (server sends JSON lines ending with '\n')
+    f = s.makefile("r", encoding="utf-8", newline="\n")
 
-    # Read newline-delimited JSON messages robustly
-    buf = ""
-    try:
-        while True:
-            chunk = s.recv(65536)
-            if not chunk:
-                break
-            buf += chunk.decode("utf-8")
+    mode = cfg.get("client_mode","you")
+    skip_next_question = False  # If previous RESULT was incorrect, skip next QUESTION
 
-            # Consume complete lines (1 JSON object per line)
-            while "\n" in buf:
-                line, buf = buf.split("\n", 1)
-                if not line.strip():
-                    continue
-                try:
-                    msg = json.loads(line)
-                except Exception:
-                    # Ignore malformed line; continue waiting for the next
-                    continue
-
-                mtype = msg.get("message_type")
-
-                if mtype == "READY":
-                    print(msg.get("info", ""))
-
-                elif mtype == "QUESTION":
-                    # Full human-readable text (print it)
-                    print(msg.get("trivia_question", ""))
-
-                    # Prefer explicit question_type if provided; otherwise fallback
-                    qtype = msg.get("question_type", "")
-                    if not qtype:
-                        title = msg.get("trivia_question", "")
-                        if "(" in title and "):" in title:
-                            qtype = title.split("(")[1].split("):")[0]
-
-                    short_q = msg.get("short_question", "")
-                    if mode == "you":
-                        answer = input().strip()
-                    elif mode == "auto":
-                        answer = auto_answer(qtype, short_q)
-                    else:  # "ai" baseline (no external calls here)
-                        answer = ""
-
-                    # Send ANSWER (newline-delimited)
-                    s.sendall(json.dumps({"message_type": "ANSWER", "answer": answer}).encode("utf-8") + b"\n")
-
-                elif mtype == "RESULT":
-                    print(msg.get("feedback", ""))
-
-                elif mtype == "LEADERBOARD":
-                    state = msg.get("state", "")
-                    if state:
-                        print(state)
-
-                elif mtype == "FINISHED":
-                    fs = msg.get("final_standings", "")
-                    winners = msg.get("winners", "")
-                    if fs:
-                        print(fs)
-                    if winners:
-                        print(f"The winners are: {winners}")
-                    return  # normal end
-    finally:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
         try:
-            s.close()
-        except Exception:
-            pass
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
 
+        mtype = msg.get("message_type")
 
-if __name__ == "__main__":
+        if mtype == "READY":
+            info = msg.get("info","")
+            if info: print(info)
+
+        elif mtype == "QUESTION":
+            # Print full text for humans
+            trivia = msg.get("trivia_question","")
+            if trivia: print(trivia)
+
+            # Respect "skip next question" rule
+            if skip_next_question:
+                skip_next_question = False
+                continue
+
+            short_q = msg.get("short_question","")
+            qtype   = msg.get("question_type","")
+            if mode == "you":
+                answer = input().strip()
+            elif mode == "auto":
+                answer = auto_answer(qtype, short_q)
+            elif mode == "ai":
+                # Baseline: no external call
+                answer = ""
+
+            # Send ANSWER (no newline)
+            s.sendall(json.dumps({"message_type": "ANSWER", "answer": answer}).encode("utf-8"))
+
+        elif mtype == "RESULT":
+            print(msg.get("feedback",""))
+            # If incorrect, skip answering the NEXT question
+            if msg.get("correct") is False:
+                skip_next_question = True
+
+        elif mtype == "LEADERBOARD":
+            state = msg.get("state","")
+            if state: print(state)
+
+        elif mtype == "FINISHED":
+            fs = msg.get("final_standings","")
+            winners = msg.get("winners","")
+            if fs: print(fs)
+            if winners: print(f"The winners are: {winners}")
+            break
+
+    s.close()
+
+if __name__=="__main__":
     main()
