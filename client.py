@@ -1,4 +1,4 @@
-# client.py — robust line-based / bare-JSON client (final tested + safe exit)
+# client.py — robust line-based / bare-JSON client (final strict version for Ed)
 
 import json
 import socket
@@ -255,8 +255,12 @@ def main() -> None:
             else:
                 answer = ""
 
-            # ✅ 修复点 1：确保答案是纯字符串
-            send_json(s, {"message_type": "ANSWER", "answer": str(answer).strip()})
+            # ✅ 修复点 1：答案类型自动匹配
+            try:
+                ans_to_send = int(str(answer).strip())
+            except ValueError:
+                ans_to_send = str(answer).strip()
+            send_json(s, {"message_type": "ANSWER", "answer": ans_to_send})
 
         elif mtype == "RESULT":
             print(msg.get("feedback", ""))
@@ -273,8 +277,10 @@ def main() -> None:
                 print(final)
             if winner:
                 print(f"The winner is: {winner}")
+            else:
+                print()  # ✅ 仅当没有 winner 时补空行
 
-            # ✅ 修复点 2：延迟关闭 socket，防止 ConnectionResetError
+            # ✅ 延迟关闭 socket 防止 ConnectionResetError
             try:
                 time.sleep(0.2)
                 s.shutdown(socket.SHUT_RDWR)
