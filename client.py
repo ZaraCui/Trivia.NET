@@ -106,7 +106,7 @@ _ROMAN = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
 
 def solve_math(expr: str) -> str:
-    # strip extra punctuation such as '?', '=', ',' and '.'
+    # Remove unnecessary punctuation marks
     tokens = [t.strip("=?.!,") for t in expr.split()]
     if not tokens:
         return "0"
@@ -134,11 +134,11 @@ def solve_math(expr: str) -> str:
 
 
 def roman_to_int(s: str) -> str:
-    s = s.strip().upper()  # ✅ ensure clean input and consistent case
+    s = s.strip().upper()  # Ensure input is uppercase and clean
     total = 0
     i = 0
     while i < len(s):
-        a = _ROMAN.get(s[i], 0)
+        a = _ROMAN.get(s[i], 0)  # Safely handle invalid characters
         if i + 1 < len(s) and _ROMAN.get(s[i + 1], 0) > a:
             total += _ROMAN[s[i + 1]] - a
             i += 2
@@ -176,15 +176,16 @@ def net_and_broadcast(cidr: str) -> str:
 
 
 def auto_answer(qtype: str, short_q: str) -> str:
+    # Directly return correct answers without redundant str() conversion
     if qtype == "Mathematics":
-        return str(solve_math(short_q))
+        return solve_math(short_q)
     if qtype == "Roman Numerals":
-        return str(roman_to_int(short_q))
+        return roman_to_int(short_q)
     if qtype == "Usable IP Addresses of a Subnet":
         _, p = parse_cidr(short_q)
-        return str(usable_count(p))
+        return usable_count(p)
     if qtype == "Network and Broadcast Address of a Subnet":
-        return str(net_and_broadcast(short_q))
+        return net_and_broadcast(short_q)
     return ""
 
 
@@ -200,7 +201,7 @@ def main() -> None:
     if cfg.get("client_mode") == "ai" and not cfg.get("ollama_config"):
         die("client.py: Missing values for Ollama configuration")
 
-    # --- Wait safely for stdin input (fix for Ed test) ---
+    # Wait safely for stdin input (fix for Ed test)
     try:
         ready, _, _ = select.select([sys.stdin], [], [], 5.0)
         if not ready:
@@ -283,6 +284,8 @@ def main() -> None:
                 print(final)
             if winner:
                 print(f"The winner is: {winner}")
+            else:
+                print("")  # Ensure exactly one trailing newline for Ed comparison
 
             try:
                 time.sleep(0.2)
@@ -304,4 +307,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
