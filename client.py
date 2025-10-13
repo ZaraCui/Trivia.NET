@@ -106,7 +106,8 @@ _ROMAN = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
 
 def solve_math(expr: str) -> str:
-    tokens = [t.strip("?.!,") for t in expr.split()]
+    # strip extra punctuation such as '?', '=', ',' and '.'
+    tokens = [t.strip("=?.!,") for t in expr.split()]
     if not tokens:
         return "0"
     try:
@@ -133,11 +134,12 @@ def solve_math(expr: str) -> str:
 
 
 def roman_to_int(s: str) -> str:
+    s = s.strip().upper()  # ✅ ensure clean input and consistent case
     total = 0
     i = 0
     while i < len(s):
-        a = _ROMAN[s[i]]
-        if i + 1 < len(s) and _ROMAN[s[i + 1]] > a:
+        a = _ROMAN.get(s[i], 0)
+        if i + 1 < len(s) and _ROMAN.get(s[i + 1], 0) > a:
             total += _ROMAN[s[i + 1]] - a
             i += 2
         else:
@@ -302,3 +304,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
