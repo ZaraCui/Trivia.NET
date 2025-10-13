@@ -1,10 +1,9 @@
-# client.py — robust line-based / bare-JSON client (final fixed version)
+# client.py — robust line-based / bare-JSON client (fixed version)
 
 import json
 import socket
 import sys
 import os
-import time
 from pathlib import Path
 
 # ----------------- configuration handling -----------------
@@ -97,6 +96,7 @@ def _iter_messages(sock: socket.socket):
                 continue
             try:
                 msg = json.loads(line.decode("utf-8"))
+                print("[DEBUG] Received message:", msg)
                 yield msg
             except json.JSONDecodeError:
                 continue
@@ -203,25 +203,12 @@ def main() -> None:
     except EOFError:
         return
 
-    # handle EXIT command
-    if line.upper() == "EXIT":
-        sys.exit(0)
-
-    if not line.startswith("CONNECT "):
-        return
-
     hostport = line.split(" ", 1)[1]
     host, port = hostport.split(":")
-
-    # fixed: add retry loop to avoid premature failure
-    for _ in range(5):
-        try:
-            port = int(port)
-            s = socket.create_connection((host, port), timeout=3)
-            break
-        except Exception:
-            time.sleep(0.3)
-    else:
+    try:
+        port = int(port)
+        s = socket.create_connection((host, port), timeout=3)
+    except Exception:
         print("Connection failed")
         return
 
@@ -294,3 +281,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
