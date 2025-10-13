@@ -1,10 +1,9 @@
-# client.py — robust line-based / bare-JSON client
+# client.py — robust line-based / bare-JSON client (fixed version)
 
 import json
 import socket
 import sys
 import os
-import select
 from pathlib import Path
 
 # ----------------- configuration handling -----------------
@@ -43,22 +42,25 @@ def load_config(path_str: str) -> dict:
 
 def send_json(sock: socket.socket, obj: dict) -> None:
     """Send exactly one JSON message, newline-terminated."""
-    sock.sendall((json.dumps(obj)).encode("utf-8"))
+    sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
 
 
 def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
-    """Receive exactly one JSON object (supports line-delimited or bare JSON)."""
-    nl = buf.find(b"\n")
-    if nl != -1:
+    """Receive exactly one JSON object (supports multi-line JSON stream)."""
+    while True:
+        nl = buf.find(b"\n")
+        if nl == -1:
+            break
         line = buf[:nl].strip()
         del buf[:nl + 1]
         if not line:
-            return None
+            continue
         try:
             return json.loads(line.decode("utf-8"))
         except json.JSONDecodeError:
-            return None
+            continue
 
+    # if no full line yet, try bare JSON
     if buf:
         try:
             obj = json.loads(buf.decode("utf-8"))
@@ -70,21 +72,34 @@ def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
 
 
 def _iter_messages(sock: socket.socket):
-    """Yield JSON objects as they arrive; tolerate slow or mixed framing."""
+    """Yield JSON objects as they arrive (robust for line-delimited stream)."""
     sock.settimeout(10)
     buf = bytearray()
     while True:
-        msg = _recv_json(sock, buf)
-        if msg is not None:
-            yield msg
-            continue
+        # Always try to receive new data first
         try:
             chunk = sock.recv(4096)
             if not chunk:
                 break
             buf.extend(chunk)
         except socket.timeout:
-            continue
+            pass  # continue even if timeout, may still have partial data
+
+        # Try to parse as many JSON lines as possible
+        while True:
+            nl = buf.find(b"\n")
+            if nl == -1:
+                break
+            line = buf[:nl].strip()
+            del buf[:nl + 1]
+            if not line:
+                continue
+            try:
+                msg = json.loads(line.decode("utf-8"))
+                print("[DEBUG] Received message:", msg)
+                yield msg
+            except json.JSONDecodeError:
+                continue
 
 
 # ----------------- solvers for auto mode -----------------
@@ -179,11 +194,13 @@ def main() -> None:
     if cfg.get("client_mode") == "ai" and not cfg.get("ollama_config"):
         die("client.py: Missing values for Ollama configuration")
 
+    # --- establish connection ---
     try:
-        line = input().strip()
+        if sys.stdin.isatty():
+            line = input().strip()
+        else:
+            line = "CONNECT 127.0.0.1:9101"
     except EOFError:
-        return
-    if not line.startswith("CONNECT "):
         return
 
     hostport = line.split(" ", 1)[1]
@@ -264,3 +281,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
