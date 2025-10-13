@@ -1,4 +1,4 @@
-k# client.py — robust line-based / bare-JSON client
+# client.py — robust line-based / bare-JSON client
 
 import json
 import socket
