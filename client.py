@@ -176,16 +176,16 @@ def net_and_broadcast(cidr: str) -> str:
 
 
 def auto_answer(qtype: str, short_q: str) -> str:
-    # Directly return correct answers without redundant str() conversion
+    # Return answers as string (Ed autograder expects JSON 'answer' to be str)
     if qtype == "Mathematics":
-        return solve_math(short_q)
+        return str(solve_math(short_q))
     if qtype == "Roman Numerals":
-        return roman_to_int(short_q)
+        return str(roman_to_int(short_q))
     if qtype == "Usable IP Addresses of a Subnet":
         _, p = parse_cidr(short_q)
-        return usable_count(p)
+        return str(usable_count(p))
     if qtype == "Network and Broadcast Address of a Subnet":
-        return net_and_broadcast(short_q)
+        return str(net_and_broadcast(short_q))
     return ""
 
 
@@ -205,16 +205,16 @@ def main() -> None:
     try:
         ready, _, _ = select.select([sys.stdin], [], [], 5.0)
         if not ready:
-            return
+            sys.exit(0)  # Exit instead of return to prevent test timeout
         line = sys.stdin.readline().strip()
     except EOFError:
-        return
+        sys.exit(0)
 
     if line.upper() == "EXIT":
         sys.exit(0)
 
     if not line.startswith("CONNECT "):
-        return
+        sys.exit(0)
 
     hostport = line.split(" ", 1)[1]
     try:
@@ -222,13 +222,13 @@ def main() -> None:
         port = int(port)
     except ValueError:
         print("Invalid CONNECT format", file=sys.stderr)
-        return
+        sys.exit(0)
 
     try:
         s = socket.create_connection((host, port), timeout=3)
     except Exception:
         print("Connection failed")
-        return
+        sys.exit(0)
 
     send_json(s, {"message_type": "HI", "username": cfg["username"]})
 
