@@ -203,6 +203,13 @@ def main() -> None:
     except EOFError:
         return
 
+    # handle EXIT command
+    if line.upper() == "EXIT":
+        sys.exit(0)
+
+    if not line.startswith("CONNECT "):
+        return
+
     hostport = line.split(" ", 1)[1]
     host, port = hostport.split(":")
 
