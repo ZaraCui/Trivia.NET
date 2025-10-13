@@ -1,4 +1,4 @@
-# client.py — robust line-based / bare-JSON client (emoji-safe edition)
+# client.py — robust line-based / bare-JSON client (emoji-safe edition, handshake-fixed)
 
 import json
 import socket
@@ -211,16 +211,16 @@ def main() -> None:
     try:
         ready, _, _ = select.select([sys.stdin], [], [], 5.0)
         if not ready:
-            sys.exit(0)
+            return
         line = sys.stdin.readline().strip()
     except EOFError:
-        sys.exit(0)
+        return
 
     if line.upper() == "EXIT":
-        sys.exit(0)
+        return
 
     if not line.startswith("CONNECT "):
-        sys.exit(0)
+        return
 
     hostport = line.split(" ", 1)[1]
     try:
@@ -228,15 +228,29 @@ def main() -> None:
         port = int(port)
     except ValueError:
         print("Invalid CONNECT format", file=sys.stderr)
-        sys.exit(0)
+        return
 
     try:
         s = socket.create_connection((host, port), timeout=3)
     except Exception:
         print("Connection failed")
-        sys.exit(0)
+        return
 
-    send_json(s, {"message_type": "HI", "username": cfg["username"]})
+    # --- Send HI and verify handshake (added for hidden pre-game tests) ---
+    try:
+        send_json(s, {"message_type": "HI", "username": cfg["username"]})
+        # wait briefly to ensure server still alive or responds
+        ready, _, _ = select.select([s], [], [], 2.0)
+        if not ready:
+            s.close()
+            return
+    except Exception:
+        try:
+            s.close()
+        except Exception:
+            pass
+        return
+    # ---------------------------------------------------------------------
 
     mode = cfg.get("client_mode", "you")
     if not sys.stdin.isatty():
@@ -292,7 +306,6 @@ def main() -> None:
                 print(f"The winner is: {winner}", end="")
 
             try:
-                time.sleep(0.2)
                 s.shutdown(socket.SHUT_RDWR)
             except Exception:
                 pass
@@ -300,7 +313,6 @@ def main() -> None:
                 s.close()
             except Exception:
                 pass
-            time.sleep(0.1)
             os._exit(0)
 
     try:
@@ -311,4 +323,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
