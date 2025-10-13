@@ -1,4 +1,4 @@
-# client.py — robust line-based / bare-JSON client
+# client.py — robust line-based / bare-JSON client (emoji-safe edition)
 
 import json
 import socket
@@ -6,6 +6,7 @@ import sys
 import os
 import select
 import time
+import re
 from pathlib import Path
 
 # ----------------- configuration handling -----------------
@@ -106,8 +107,9 @@ _ROMAN = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
 
 def solve_math(expr: str) -> str:
-    """Solve simple arithmetic questions like '3 + 29 - 17 - 78'."""
-    tokens = [t.strip("=?.!,") for t in expr.split()]
+    """Solve arithmetic expressions safely even with emojis or non-digit symbols."""
+    cleaned = re.sub(r"[^0-9+\-*/ ]", " ", expr)  # keep only digits and operators
+    tokens = cleaned.split()
     if not tokens:
         return "0"
     try:
@@ -130,13 +132,13 @@ def solve_math(expr: str) -> str:
         elif op == "/":
             val = (val // rhs) if rhs != 0 else 0
         i += 2
-    # Use Unicode minus sign (U+2212) to match test expectations
+    # Unicode minus sign for Ed comparison
     return str(val).replace("-", "−")
 
 
 def roman_to_int(s: str) -> str:
-    """Convert Roman numeral string to decimal string."""
-    s = s.strip().upper()
+    """Convert Roman numerals ignoring emojis or extra punctuation."""
+    s = re.sub(r"[^IVXLCDM]", "", s.upper())  # keep only valid Roman letters
     total = 0
     i = 0
     while i < len(s):
@@ -159,7 +161,9 @@ def int_to_ip(x):
 
 
 def parse_cidr(cidr: str):
-    ip, pfx = cidr.split("/")
+    """Parse CIDR robustly, stripping emojis and special characters."""
+    cleaned = re.sub(r"[^0-9./]", "", cidr)
+    ip, pfx = cleaned.split("/")
     a, b, c, d = map(int, ip.split("."))
     return ip_to_int(a, b, c, d), int(pfx)
 
@@ -285,7 +289,6 @@ def main() -> None:
             if final:
                 print(final)
             if winner:
-                # No trailing newline to avoid extra blank lines
                 print(f"The winner is: {winner}", end="")
 
             try:
@@ -308,3 +311,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
