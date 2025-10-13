@@ -106,7 +106,7 @@ _ROMAN = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
 
 def solve_math(expr: str) -> str:
-    # Remove unnecessary punctuation marks
+    """Solve simple arithmetic questions like '3 + 29 - 17 - 78'."""
     tokens = [t.strip("=?.!,") for t in expr.split()]
     if not tokens:
         return "0"
@@ -130,15 +130,17 @@ def solve_math(expr: str) -> str:
         elif op == "/":
             val = (val // rhs) if rhs != 0 else 0
         i += 2
-    return str(val)
+    # Use Unicode minus sign (U+2212) to match test expectations
+    return str(val).replace("-", "−")
 
 
 def roman_to_int(s: str) -> str:
-    s = s.strip().upper()  # Ensure input is uppercase and clean
+    """Convert Roman numeral string to decimal string."""
+    s = s.strip().upper()
     total = 0
     i = 0
     while i < len(s):
-        a = _ROMAN.get(s[i], 0)  # Safely handle invalid characters
+        a = _ROMAN.get(s[i], 0)
         if i + 1 < len(s) and _ROMAN.get(s[i + 1], 0) > a:
             total += _ROMAN[s[i + 1]] - a
             i += 2
@@ -176,7 +178,7 @@ def net_and_broadcast(cidr: str) -> str:
 
 
 def auto_answer(qtype: str, short_q: str) -> str:
-    # Return answers as string (Ed autograder expects JSON 'answer' to be str)
+    """Auto mode answer selection for each question type."""
     if qtype == "Mathematics":
         return str(solve_math(short_q))
     if qtype == "Roman Numerals":
@@ -205,7 +207,7 @@ def main() -> None:
     try:
         ready, _, _ = select.select([sys.stdin], [], [], 5.0)
         if not ready:
-            sys.exit(0)  # Exit instead of return to prevent test timeout
+            sys.exit(0)
         line = sys.stdin.readline().strip()
     except EOFError:
         sys.exit(0)
@@ -283,9 +285,8 @@ def main() -> None:
             if final:
                 print(final)
             if winner:
-                print(f"The winner is: {winner}")
-            else:
-                print("")  # Ensure exactly one trailing newline for Ed comparison
+                # No trailing newline to avoid extra blank lines
+                print(f"The winner is: {winner}", end="")
 
             try:
                 time.sleep(0.2)
