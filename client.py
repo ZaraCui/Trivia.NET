@@ -169,14 +169,14 @@ def net_and_broadcast(cidr: str) -> str:
 
 def auto_answer(qtype: str, short_q: str) -> str:
     if qtype == "Mathematics":
-        return solve_math(short_q)
+        return str(solve_math(short_q))
     if qtype == "Roman Numerals":
-        return roman_to_int(short_q)
+        return str(roman_to_int(short_q))
     if qtype == "Usable IP Addresses of a Subnet":
         _, p = parse_cidr(short_q)
-        return usable_count(p)
+        return str(usable_count(p))
     if qtype == "Network and Broadcast Address of a Subnet":
-        return net_and_broadcast(short_q)
+        return str(net_and_broadcast(short_q))
     return ""
 
 
@@ -255,12 +255,13 @@ def main() -> None:
             else:
                 answer = ""
 
-            # ✅ Always send as string (Ed expects str for all answers)
             ans_to_send = str(answer).strip()
             send_json(s, {"message_type": "ANSWER", "answer": ans_to_send})
 
         elif mtype == "RESULT":
-            print(msg.get("feedback", ""))
+            feedback = msg.get("feedback", "").strip()
+            if feedback:
+                print(feedback)
 
         elif mtype == "LEADERBOARD":
             state = msg.get("state", "")
@@ -274,8 +275,6 @@ def main() -> None:
                 print(final)
             if winner:
                 print(f"The winner is: {winner}")
-            else:
-                print()  # only if no winner provided
 
             try:
                 time.sleep(0.2)
@@ -297,4 +296,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
