@@ -106,14 +106,20 @@ _ROMAN = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
 
 def solve_math(expr: str) -> str:
-    tokens = expr.split()
+    tokens = [t.strip("?.!,") for t in expr.split()]
     if not tokens:
         return "0"
-    val = int(tokens[0])
+    try:
+        val = int(tokens[0])
+    except ValueError:
+        return "0"
     i = 1
     while i + 1 < len(tokens):
         op = tokens[i]
-        rhs = int(tokens[i + 1])
+        try:
+            rhs = int(tokens[i + 1])
+        except ValueError:
+            rhs = 0
         if op == "+":
             val += rhs
         elif op == "-":
