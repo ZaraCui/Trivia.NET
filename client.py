@@ -1,10 +1,11 @@
-# client.py — robust line-based / bare-JSON client (final tested version)
+# client.py — robust line-based / bare-JSON client (final tested + safe exit)
 
 import json
 import socket
 import sys
 import os
 import select
+import time
 from pathlib import Path
 
 # ----------------- configuration handling -----------------
@@ -61,7 +62,6 @@ def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
         except json.JSONDecodeError:
             continue
 
-    # if no full line yet, try bare JSON
     if buf:
         try:
             obj = json.loads(buf.decode("utf-8"))
@@ -77,16 +77,14 @@ def _iter_messages(sock: socket.socket):
     sock.settimeout(10)
     buf = bytearray()
     while True:
-        # Always try to receive new data first
         try:
             chunk = sock.recv(4096)
             if not chunk:
                 break
             buf.extend(chunk)
         except socket.timeout:
-            pass  # continue even if timeout, may still have partial data
+            pass
 
-        # Try to parse as many JSON lines as possible
         while True:
             nl = buf.find(b"\n")
             if nl == -1:
@@ -198,7 +196,7 @@ def main() -> None:
     try:
         ready, _, _ = select.select([sys.stdin], [], [], 5.0)
         if not ready:
-            return  # no input within 5 seconds
+            return
         line = sys.stdin.readline().strip()
     except EOFError:
         return
@@ -209,7 +207,6 @@ def main() -> None:
     if not line.startswith("CONNECT "):
         return
 
-    # --- Parse host and port ---
     hostport = line.split(" ", 1)[1]
     try:
         host, port = hostport.split(":")
@@ -218,14 +215,12 @@ def main() -> None:
         print("Invalid CONNECT format", file=sys.stderr)
         return
 
-    # --- Establish connection ---
     try:
         s = socket.create_connection((host, port), timeout=3)
     except Exception:
         print("Connection failed")
         return
 
-    # --- Send initial HI message ---
     send_json(s, {"message_type": "HI", "username": cfg["username"]})
 
     mode = cfg.get("client_mode", "you")
@@ -260,7 +255,8 @@ def main() -> None:
             else:
                 answer = ""
 
-            send_json(s, {"message_type": "ANSWER", "answer": answer})
+            # ✅ 修复点 1：确保答案是纯字符串
+            send_json(s, {"message_type": "ANSWER", "answer": str(answer).strip()})
 
         elif mtype == "RESULT":
             print(msg.get("feedback", ""))
@@ -277,7 +273,10 @@ def main() -> None:
                 print(final)
             if winner:
                 print(f"The winner is: {winner}")
+
+            # ✅ 修复点 2：延迟关闭 socket，防止 ConnectionResetError
             try:
+                time.sleep(0.2)
                 s.shutdown(socket.SHUT_RDWR)
             except Exception:
                 pass
@@ -285,6 +284,7 @@ def main() -> None:
                 s.close()
             except Exception:
                 pass
+            time.sleep(0.1)
             os._exit(0)
 
     try:
