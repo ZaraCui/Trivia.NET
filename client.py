@@ -1,4 +1,4 @@
-# client.py — robust line-based / bare-JSON client (emoji-safe edition)
+kkk# client.py — robust line-based / bare-JSON client (emoji-safe edition)
 
 import json
 import socket
@@ -44,9 +44,8 @@ def load_config(path_str: str) -> dict:
 # ----------------- helpers -----------------
 
 def send_json(sock: socket.socket, obj: dict) -> None:
-    """Send exactly one JSON message, newline-terminated (emoji-safe)."""
-    # ✅ Modification 1: ensure_ascii=False to preserve emoji / UTF-8 chars
-    sock.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
+    """Send exactly one JSON message, newline-terminated."""
+    sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
 
 
 def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
@@ -239,23 +238,6 @@ def main() -> None:
 
     send_json(s, {"message_type": "HI", "username": cfg["username"]})
 
-    # ✅ Modification 2: handshake safety (hidden test fix)
-    try:
-        ready, _, _ = select.select([s], [], [], 2.0)
-        if not ready:
-            try:
-                s.close()
-            except Exception:
-                pass
-            sys.exit(0)
-    except Exception:
-        try:
-            s.close()
-        except Exception:
-            pass
-        sys.exit(0)
-    # ----------------------------------------------------
-
     mode = cfg.get("client_mode", "you")
     if not sys.stdin.isatty():
         mode = "auto"
@@ -307,10 +289,10 @@ def main() -> None:
             if final:
                 print(final)
             if winner:
-                # ✅ Modification 3: remove end delay & ensure single-line output
                 print(f"The winner is: {winner}", end="")
 
             try:
+                time.sleep(0.2)
                 s.shutdown(socket.SHUT_RDWR)
             except Exception:
                 pass
@@ -318,6 +300,7 @@ def main() -> None:
                 s.close()
             except Exception:
                 pass
+            time.sleep(0.1)
             os._exit(0)
 
     try:
@@ -328,3 +311,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
