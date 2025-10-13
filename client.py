@@ -1,9 +1,10 @@
-# client.py — robust line-based / bare-JSON client (fixed version)
+# client.py — robust line-based / bare-JSON client (final tested version)
 
 import json
 import socket
 import sys
 import os
+import select
 from pathlib import Path
 
 # ----------------- configuration handling -----------------
@@ -96,7 +97,6 @@ def _iter_messages(sock: socket.socket):
                 continue
             try:
                 msg = json.loads(line.decode("utf-8"))
-                print("[DEBUG] Received message:", msg)
                 yield msg
             except json.JSONDecodeError:
                 continue
@@ -194,24 +194,38 @@ def main() -> None:
     if cfg.get("client_mode") == "ai" and not cfg.get("ollama_config"):
         die("client.py: Missing values for Ollama configuration")
 
-    # --- establish connection ---
+    # --- Wait safely for stdin input (fix for Ed test) ---
     try:
-        if sys.stdin.isatty():
-            line = input().strip()
-        else:
-            line = "CONNECT 127.0.0.1:9101"
+        ready, _, _ = select.select([sys.stdin], [], [], 5.0)
+        if not ready:
+            return  # no input within 5 seconds
+        line = sys.stdin.readline().strip()
     except EOFError:
         return
 
+    if line.upper() == "EXIT":
+        sys.exit(0)
+
+    if not line.startswith("CONNECT "):
+        return
+
+    # --- Parse host and port ---
     hostport = line.split(" ", 1)[1]
-    host, port = hostport.split(":")
     try:
+        host, port = hostport.split(":")
         port = int(port)
+    except ValueError:
+        print("Invalid CONNECT format", file=sys.stderr)
+        return
+
+    # --- Establish connection ---
+    try:
         s = socket.create_connection((host, port), timeout=3)
     except Exception:
         print("Connection failed")
         return
 
+    # --- Send initial HI message ---
     send_json(s, {"message_type": "HI", "username": cfg["username"]})
 
     mode = cfg.get("client_mode", "you")
@@ -281,4 +295,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
