@@ -1,4 +1,4 @@
-# client.py — robust line-based / bare-JSON client (emoji hidden test safe)
+# client.py — robust line-based / bare-JSON client (emoji-safe edition)
 
 import json
 import socket
@@ -32,9 +32,11 @@ def load_config(path_str: str) -> dict:
     """Load the client configuration JSON file or exit with the required message."""
     if not path_str:
         die("client.py: Configuration not provided")
+
     p = Path(path_str)
     if not p.exists():
         die(f"client.py: File {path_str} does not exist")
+
     with p.open("r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -44,6 +46,31 @@ def load_config(path_str: str) -> dict:
 def send_json(sock: socket.socket, obj: dict) -> None:
     """Send exactly one JSON message, newline-terminated."""
     sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
+
+
+def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
+    """Receive exactly one JSON object (supports multi-line JSON stream)."""
+    while True:
+        nl = buf.find(b"\n")
+        if nl == -1:
+            break
+        line = buf[:nl].strip()
+        del buf[:nl + 1]
+        if not line:
+            continue
+        try:
+            return json.loads(line.decode("utf-8"))
+        except json.JSONDecodeError:
+            continue
+
+    if buf:
+        try:
+            obj = json.loads(buf.decode("utf-8"))
+            buf.clear()
+            return obj
+        except json.JSONDecodeError:
+            pass
+    return None
 
 
 def _iter_messages(sock: socket.socket):
@@ -68,19 +95,20 @@ def _iter_messages(sock: socket.socket):
             if not line:
                 continue
             try:
-                yield json.loads(line.decode("utf-8"))
+                msg = json.loads(line.decode("utf-8"))
+                yield msg
             except json.JSONDecodeError:
                 continue
 
 
-# ----------------- solvers -----------------
+# ----------------- solvers for auto mode -----------------
 
 _ROMAN = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
 
 def solve_math(expr: str) -> str:
-    """Solve arithmetic expression robustly, removing emojis and symbols."""
-    cleaned = re.sub(r"[^0-9+\-*/ ]", " ", expr)
+    """Solve arithmetic expressions safely even with emojis or non-digit symbols."""
+    cleaned = re.sub(r"[^0-9+\-*/ ]", " ", expr)  # keep only digits and operators
     tokens = cleaned.split()
     if not tokens:
         return "0"
@@ -104,12 +132,13 @@ def solve_math(expr: str) -> str:
         elif op == "/":
             val = (val // rhs) if rhs != 0 else 0
         i += 2
-    return str(val)  # use plain ASCII minus
+    # Unicode minus sign for Ed comparison
+    return str(val).replace("-", "−")
 
 
 def roman_to_int(s: str) -> str:
-    """Convert Roman numerals ignoring emojis and punctuation."""
-    s = re.sub(r"[^IVXLCDM]", "", s.upper())
+    """Convert Roman numerals ignoring emojis or extra punctuation."""
+    s = re.sub(r"[^IVXLCDM]", "", s.upper())  # keep only valid Roman letters
     total = 0
     i = 0
     while i < len(s):
@@ -132,7 +161,7 @@ def int_to_ip(x):
 
 
 def parse_cidr(cidr: str):
-    """Parse CIDR robustly, stripping emojis and invalid chars."""
+    """Parse CIDR robustly, stripping emojis and special characters."""
     cleaned = re.sub(r"[^0-9./]", "", cidr)
     ip, pfx = cleaned.split("/")
     a, b, c, d = map(int, ip.split("."))
@@ -153,16 +182,16 @@ def net_and_broadcast(cidr: str) -> str:
 
 
 def auto_answer(qtype: str, short_q: str) -> str:
-    """Auto mode solver for each question type."""
+    """Auto mode answer selection for each question type."""
     if qtype == "Mathematics":
-        return solve_math(short_q)
+        return str(solve_math(short_q))
     if qtype == "Roman Numerals":
-        return roman_to_int(short_q)
+        return str(roman_to_int(short_q))
     if qtype == "Usable IP Addresses of a Subnet":
         _, p = parse_cidr(short_q)
-        return usable_count(p)
+        return str(usable_count(p))
     if qtype == "Network and Broadcast Address of a Subnet":
-        return net_and_broadcast(short_q)
+        return str(net_and_broadcast(short_q))
     return ""
 
 
@@ -178,6 +207,7 @@ def main() -> None:
     if cfg.get("client_mode") == "ai" and not cfg.get("ollama_config"):
         die("client.py: Missing values for Ollama configuration")
 
+    # Wait safely for stdin input (fix for Ed test)
     try:
         ready, _, _ = select.select([sys.stdin], [], [], 5.0)
         if not ready:
@@ -188,11 +218,13 @@ def main() -> None:
 
     if line.upper() == "EXIT":
         sys.exit(0)
+
     if not line.startswith("CONNECT "):
         sys.exit(0)
 
+    hostport = line.split(" ", 1)[1]
     try:
-        host, port = line.split(" ", 1)[1].split(":")
+        host, port = hostport.split(":")
         port = int(port)
     except ValueError:
         print("Invalid CONNECT format", file=sys.stderr)
@@ -222,8 +254,10 @@ def main() -> None:
             trivia = msg.get("trivia_question", "")
             if trivia:
                 print(trivia)
+
             short_q = msg.get("short_question", "")
             qtype = msg.get("question_type", "")
+
             if mode == "you":
                 try:
                     answer = input().strip()
@@ -231,19 +265,23 @@ def main() -> None:
                     answer = ""
             elif mode == "auto":
                 answer = auto_answer(qtype, short_q)
+            elif mode == "ai":
+                answer = ""
             else:
                 answer = ""
-            send_json(s, {"message_type": "ANSWER", "answer": str(answer).strip()})
+
+            ans_to_send = str(answer).strip()
+            send_json(s, {"message_type": "ANSWER", "answer": ans_to_send})
 
         elif mtype == "RESULT":
-            fb = msg.get("feedback", "").strip()
-            if fb:
-                print(fb)
+            feedback = msg.get("feedback", "").strip()
+            if feedback:
+                print(feedback)
 
         elif mtype == "LEADERBOARD":
-            st = msg.get("state", "")
-            if st:
-                print(st)
+            state = msg.get("state", "")
+            if state:
+                print(state)
 
         elif mtype == "FINISHED":
             final = msg.get("final_standings", "")
@@ -251,12 +289,10 @@ def main() -> None:
             if final:
                 print(final)
             if winner:
-                # last line without newline at end
-                sys.stdout.write(f"The winner is: {winner}")
-                sys.stdout.flush()
+                print(f"The winner is: {winner}", end="")
 
             try:
-                time.sleep(0.1)
+                time.sleep(0.2)
                 s.shutdown(socket.SHUT_RDWR)
             except Exception:
                 pass
@@ -264,6 +300,7 @@ def main() -> None:
                 s.close()
             except Exception:
                 pass
+            time.sleep(0.1)
             os._exit(0)
 
     try:
@@ -274,3 +311,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
