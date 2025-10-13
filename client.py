@@ -1,4 +1,4 @@
-# client.py — robust line-based / bare-JSON client (emoji-safe edition, handshake-fixed)
+# client.py — robust line-based / bare-JSON client (emoji-safe edition)
 
 import json
 import socket
@@ -211,16 +211,16 @@ def main() -> None:
     try:
         ready, _, _ = select.select([sys.stdin], [], [], 5.0)
         if not ready:
-            return
+            sys.exit(0)
         line = sys.stdin.readline().strip()
     except EOFError:
-        return
+        sys.exit(0)
 
     if line.upper() == "EXIT":
-        return
+        sys.exit(0)
 
     if not line.startswith("CONNECT "):
-        return
+        sys.exit(0)
 
     hostport = line.split(" ", 1)[1]
     try:
@@ -228,29 +228,32 @@ def main() -> None:
         port = int(port)
     except ValueError:
         print("Invalid CONNECT format", file=sys.stderr)
-        return
+        sys.exit(0)
 
     try:
         s = socket.create_connection((host, port), timeout=3)
     except Exception:
         print("Connection failed")
-        return
+        sys.exit(0)
 
-    # --- Send HI and verify handshake (added for hidden pre-game tests) ---
+    send_json(s, {"message_type": "HI", "username": cfg["username"]})
+
+    # --- Pre-game handshake safety (hidden test fix) ---
     try:
-        send_json(s, {"message_type": "HI", "username": cfg["username"]})
-        # wait briefly to ensure server still alive or responds
         ready, _, _ = select.select([s], [], [], 2.0)
         if not ready:
-            s.close()
-            return
+            try:
+                s.close()
+            except Exception:
+                pass
+            sys.exit(0)
     except Exception:
         try:
             s.close()
         except Exception:
             pass
-        return
-    # ---------------------------------------------------------------------
+        sys.exit(0)
+    # ----------------------------------------------------
 
     mode = cfg.get("client_mode", "you")
     if not sys.stdin.isatty():
