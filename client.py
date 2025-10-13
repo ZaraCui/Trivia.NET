@@ -1,4 +1,4 @@
-kkk# client.py — robust line-based / bare-JSON client (emoji-safe edition)
+# client.py — robust line-based / bare-JSON client (emoji-safe edition)
 
 import json
 import socket
