@@ -1,5 +1,4 @@
-
-# client.py — stable and spec-compliant version
+# client.py — robust line-based / bare-JSON client (fixed to spec)
 
 import json
 import socket
@@ -44,16 +43,39 @@ def load_config(path_str: str) -> dict:
 # ----------------- helpers -----------------
 
 def send_json(sock: socket.socket, obj: dict) -> None:
-    """Send exactly one JSON message, newline-terminated (emoji-safe)."""
-    # ensure_ascii=False so emojis and UTF-8 chars are not escaped
-    # newline at end per updated spec
+    """Send exactly one JSON message, newline-terminated, emoji-safe."""
     sock.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
+
+
+def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
+    """Receive exactly one JSON object (supports multi-line JSON stream)."""
+    while True:
+        nl = buf.find(b"\n")
+        if nl == -1:
+            break
+        line = buf[:nl].strip()
+        del buf[:nl + 1]
+        if not line:
+            continue
+        try:
+            return json.loads(line.decode("utf-8"))
+        except json.JSONDecodeError:
+            continue
+
+    if buf:
+        try:
+            obj = json.loads(buf.decode("utf-8"))
+            buf.clear()
+            return obj
+        except json.JSONDecodeError:
+            pass
+    return None
 
 
 def _iter_messages(sock: socket.socket):
     """Yield JSON objects as they arrive (robust for line-delimited stream)."""
+    sock.settimeout(10)
     buf = bytearray()
-    sock.settimeout(5)
     while True:
         try:
             chunk = sock.recv(4096)
@@ -61,7 +83,7 @@ def _iter_messages(sock: socket.socket):
                 break
             buf.extend(chunk)
         except socket.timeout:
-            continue
+            pass
 
         while True:
             nl = buf.find(b"\n")
@@ -92,6 +114,7 @@ def solve_math(expr: str) -> str:
         val = int(tokens[0])
     except ValueError:
         return "0"
+
     i = 1
     while i + 1 < len(tokens):
         op = tokens[i]
@@ -99,6 +122,11 @@ def solve_math(expr: str) -> str:
             rhs = int(tokens[i + 1])
         except ValueError:
             rhs = 0
+
+        # Clamp values to 1–100 per updated spec
+        rhs = max(1, min(rhs, 100))
+        val = max(1, min(val, 100))
+
         if op == "+":
             val += rhs
         elif op == "-":
@@ -108,6 +136,9 @@ def solve_math(expr: str) -> str:
         elif op == "/":
             val = (val // rhs) if rhs != 0 else 0
         i += 2
+
+    # Clamp result to prevent overflow or negatives outside 1–100
+    val = max(-9999, min(val, 9999))
     return str(val).replace("-", "−")
 
 
@@ -157,14 +188,14 @@ def net_and_broadcast(cidr: str) -> str:
 def auto_answer(qtype: str, short_q: str) -> str:
     """Auto mode answer selection for each question type."""
     if qtype == "Mathematics":
-        return solve_math(short_q)
+        return str(solve_math(short_q))
     if qtype == "Roman Numerals":
-        return roman_to_int(short_q)
+        return str(roman_to_int(short_q))
     if qtype == "Usable IP Addresses of a Subnet":
         _, p = parse_cidr(short_q)
-        return usable_count(p)
+        return str(usable_count(p))
     if qtype == "Network and Broadcast Address of a Subnet":
-        return net_and_broadcast(short_q)
+        return str(net_and_broadcast(short_q))
     return ""
 
 
@@ -180,7 +211,6 @@ def main() -> None:
     if cfg.get("client_mode") == "ai" and not cfg.get("ollama_config"):
         die("client.py: Missing values for Ollama configuration")
 
-    # Wait safely for stdin input
     try:
         ready, _, _ = select.select([sys.stdin], [], [], 5.0)
         if not ready:
@@ -189,8 +219,8 @@ def main() -> None:
     except EOFError:
         sys.exit(0)
 
-    # --- EXIT handling per spec ---
-    if line.upper() in ("EXIT", "DISCONNECT"):
+    # EXIT handling — new spec: send BYE only if connected
+    if line.upper() == "EXIT":
         sys.exit(0)
 
     if not line.startswith("CONNECT "):
@@ -210,14 +240,12 @@ def main() -> None:
         print("Connection failed")
         sys.exit(0)
 
-    # Immediately send HI message (required by protocol)
     send_json(s, {"message_type": "HI", "username": cfg["username"]})
 
     mode = cfg.get("client_mode", "you")
     if not sys.stdin.isatty():
         mode = "auto"
 
-    # --- Main receive loop ---
     for msg in _iter_messages(s):
         mtype = msg.get("message_type")
 
@@ -243,7 +271,7 @@ def main() -> None:
             else:
                 answer = ""
 
-            send_json(s, {"message_type": "ANSWER", "answer": str(answer)})
+            send_json(s, {"message_type": "ANSWER", "answer": str(answer).strip()})
 
         elif mtype == "RESULT":
             feedback = msg.get("feedback", "").strip()
@@ -261,13 +289,12 @@ def main() -> None:
             if final:
                 print(final)
             if winner:
-                print(f"The winner is: {winner}")
-            else:
-                print()
+                print(f"The winner is: {winner}", end="")
 
-            # Close cleanly
+            # Send BYE as per updated spec
             try:
                 send_json(s, {"message_type": "BYE"})
+                time.sleep(0.2)
             except Exception:
                 pass
             try:
