@@ -1,4 +1,5 @@
-# client.py — robust line-based / bare-JSON client (spec update compliant)
+
+# client.py — stable and spec-compliant version
 
 import json
 import socket
@@ -43,40 +44,16 @@ def load_config(path_str: str) -> dict:
 # ----------------- helpers -----------------
 
 def send_json(sock: socket.socket, obj: dict) -> None:
-    """Send exactly one JSON message, newline-terminated (spec requires newline)."""
-    # CHANGE 1: ensure_ascii=False for emoji-safe output and newline at the end
+    """Send exactly one JSON message, newline-terminated (emoji-safe)."""
+    # ensure_ascii=False so emojis and UTF-8 chars are not escaped
+    # newline at end per updated spec
     sock.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
-
-
-def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
-    """Receive exactly one JSON object (supports multi-line JSON stream)."""
-    while True:
-        nl = buf.find(b"\n")
-        if nl == -1:
-            break
-        line = buf[:nl].strip()
-        del buf[:nl + 1]
-        if not line:
-            continue
-        try:
-            return json.loads(line.decode("utf-8"))
-        except json.JSONDecodeError:
-            continue
-
-    if buf:
-        try:
-            obj = json.loads(buf.decode("utf-8"))
-            buf.clear()
-            return obj
-        except json.JSONDecodeError:
-            pass
-    return None
 
 
 def _iter_messages(sock: socket.socket):
     """Yield JSON objects as they arrive (robust for line-delimited stream)."""
-    sock.settimeout(10)
     buf = bytearray()
+    sock.settimeout(5)
     while True:
         try:
             chunk = sock.recv(4096)
@@ -84,7 +61,7 @@ def _iter_messages(sock: socket.socket):
                 break
             buf.extend(chunk)
         except socket.timeout:
-            pass
+            continue
 
         while True:
             nl = buf.find(b"\n")
@@ -131,7 +108,6 @@ def solve_math(expr: str) -> str:
         elif op == "/":
             val = (val // rhs) if rhs != 0 else 0
         i += 2
-    # Use Unicode minus sign (U+2212) to match test expectations
     return str(val).replace("-", "−")
 
 
@@ -181,14 +157,14 @@ def net_and_broadcast(cidr: str) -> str:
 def auto_answer(qtype: str, short_q: str) -> str:
     """Auto mode answer selection for each question type."""
     if qtype == "Mathematics":
-        return str(solve_math(short_q))
+        return solve_math(short_q)
     if qtype == "Roman Numerals":
-        return str(roman_to_int(short_q))
+        return roman_to_int(short_q)
     if qtype == "Usable IP Addresses of a Subnet":
         _, p = parse_cidr(short_q)
-        return str(usable_count(p))
+        return usable_count(p)
     if qtype == "Network and Broadcast Address of a Subnet":
-        return str(net_and_broadcast(short_q))
+        return net_and_broadcast(short_q)
     return ""
 
 
@@ -204,7 +180,7 @@ def main() -> None:
     if cfg.get("client_mode") == "ai" and not cfg.get("ollama_config"):
         die("client.py: Missing values for Ollama configuration")
 
-    # Wait safely for stdin input (fix for Ed test)
+    # Wait safely for stdin input
     try:
         ready, _, _ = select.select([sys.stdin], [], [], 5.0)
         if not ready:
@@ -213,18 +189,8 @@ def main() -> None:
     except EOFError:
         sys.exit(0)
 
-    # CHANGE 2: Handle EXIT and DISCONNECT according to new specification
+    # --- EXIT handling per spec ---
     if line.upper() in ("EXIT", "DISCONNECT"):
-        try:
-            if 's' in locals() and s:
-                send_json(s, {"message_type": "BYE"})
-                try:
-                    s.shutdown(socket.SHUT_RDWR)
-                except Exception:
-                    pass
-                s.close()
-        except Exception:
-            pass
         sys.exit(0)
 
     if not line.startswith("CONNECT "):
@@ -244,12 +210,14 @@ def main() -> None:
         print("Connection failed")
         sys.exit(0)
 
+    # Immediately send HI message (required by protocol)
     send_json(s, {"message_type": "HI", "username": cfg["username"]})
 
     mode = cfg.get("client_mode", "you")
     if not sys.stdin.isatty():
         mode = "auto"
 
+    # --- Main receive loop ---
     for msg in _iter_messages(s):
         mtype = msg.get("message_type")
 
@@ -262,7 +230,6 @@ def main() -> None:
             trivia = msg.get("trivia_question", "")
             if trivia:
                 print(trivia)
-
             short_q = msg.get("short_question", "")
             qtype = msg.get("question_type", "")
 
@@ -273,13 +240,10 @@ def main() -> None:
                     answer = ""
             elif mode == "auto":
                 answer = auto_answer(qtype, short_q)
-            elif mode == "ai":
-                answer = ""
             else:
                 answer = ""
 
-            ans_to_send = str(answer).strip()
-            send_json(s, {"message_type": "ANSWER", "answer": ans_to_send})
+            send_json(s, {"message_type": "ANSWER", "answer": str(answer)})
 
         elif mtype == "RESULT":
             feedback = msg.get("feedback", "").strip()
@@ -297,11 +261,15 @@ def main() -> None:
             if final:
                 print(final)
             if winner:
-                # CHANGE 3: all messages must end with newline
                 print(f"The winner is: {winner}")
             else:
                 print()
 
+            # Close cleanly
+            try:
+                send_json(s, {"message_type": "BYE"})
+            except Exception:
+                pass
             try:
                 s.shutdown(socket.SHUT_RDWR)
             except Exception:
