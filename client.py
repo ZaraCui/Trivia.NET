@@ -1,4 +1,4 @@
-# client.py — robust line-based / bare-JSON client
+# client.py — robust line-based / bare-JSON client (spec update compliant)
 
 import json
 import socket
@@ -43,8 +43,9 @@ def load_config(path_str: str) -> dict:
 # ----------------- helpers -----------------
 
 def send_json(sock: socket.socket, obj: dict) -> None:
-    """Send exactly one JSON message, newline-terminated."""
-    sock.sendall((json.dumps(obj) + "\n").encode("utf-8"))
+    """Send exactly one JSON message, newline-terminated (spec requires newline)."""
+    # CHANGE 1: ensure_ascii=False for emoji-safe output and newline at the end
+    sock.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
 
 
 def _recv_json(sock: socket.socket, buf: bytearray) -> dict | None:
@@ -212,7 +213,18 @@ def main() -> None:
     except EOFError:
         sys.exit(0)
 
-    if line.upper() == "EXIT":
+    # CHANGE 2: Handle EXIT and DISCONNECT according to new specification
+    if line.upper() in ("EXIT", "DISCONNECT"):
+        try:
+            if 's' in locals() and s:
+                send_json(s, {"message_type": "BYE"})
+                try:
+                    s.shutdown(socket.SHUT_RDWR)
+                except Exception:
+                    pass
+                s.close()
+        except Exception:
+            pass
         sys.exit(0)
 
     if not line.startswith("CONNECT "):
@@ -285,11 +297,12 @@ def main() -> None:
             if final:
                 print(final)
             if winner:
-                # No trailing newline to avoid extra blank lines
-                print(f"The winner is: {winner}", end="")
+                # CHANGE 3: all messages must end with newline
+                print(f"The winner is: {winner}")
+            else:
+                print()
 
             try:
-                time.sleep(0.2)
                 s.shutdown(socket.SHUT_RDWR)
             except Exception:
                 pass
@@ -297,7 +310,6 @@ def main() -> None:
                 s.close()
             except Exception:
                 pass
-            time.sleep(0.1)
             os._exit(0)
 
     try:
