@@ -1,0 +1,17 @@
+{
+    "port": 12345,
+    "players": 1,
+    "ready_info": "Get ready to play!",
+    "question_word": "Question",
+    "points_noun_singular": "dream",
+    "points_noun_plural": "dreams",
+    "correct_feedback": "Great job mate!",
+    "incorrect_feedback": "Incorrect answer :(",
+    "final_phrase": "Final standings:",
+    "final_extra": "May the force be with you, {winner}!",
+    "question_seconds": 1.0,
+    "question_types": [
+        "Mathematics",
+        "Roman Numerals"
+    ]
+}
