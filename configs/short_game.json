@@ -1,0 +1,18 @@
+{
+  "port": 5055,
+  "players": 1,
+  "question_word": "Question",
+  "question_types": ["Mathematics", "Roman Numerals"],
+  "question_formats": {
+    "Mathematics": "{0}",
+    "Roman Numerals": "Convert {0} to decimal."
+  },
+  "question_seconds": 1.0,
+  "question_interval_seconds": 0.3,
+  "ready_info": "Welcome! {players} player ready.",
+  "points_noun_singular": "dream",
+  "points_noun_plural": "dreams",
+  "final_standings_heading": "Final standings:",
+  "one_winner": "{0} wins!",
+  "multiple_winners": "{0} tie for first place!"
+}

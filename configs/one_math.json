@@ -1,0 +1,14 @@
+{
+  "port": 5055,
+  "players": 1,
+  "question_word": "Question",
+  "question_types": ["Mathematics"],
+  "question_formats": {"Mathematics": "{0}"},
+  "question_seconds": 1.0,
+  "question_interval_seconds": 0.5,
+  "ready_info": "Get ready!",
+  "points_noun_singular": "dream",
+  "points_noun_plural": "dreams",
+  "final_standings_heading": "Final standings:",
+  "one_winner": "{0} wins!"
+}
