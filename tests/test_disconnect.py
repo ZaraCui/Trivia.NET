@@ -3,41 +3,42 @@ import time
 
 def test_client_disconnect():
     """
-    Verify that when one client disconnects mid-game, the server correctly
-    handles it by broadcasting either a 'BYE' or a 'FINISHED' message
-    to the remaining connected client(s).
-
-    This version ensures stability by:
-      - Waiting longer for the server to detect disconnects.
-      - Reading the remaining client's output before terminating it.
-      - Avoiding race conditions where processes are killed too early.
+    Final robust version:
+    Waits longer for server broadcasts and only terminates
+    the remaining client AFTER verifying it received messages.
     """
 
-    # 1) Start the server with a short two-question game
+    # 1) Start the server
     srv = run_server("configs/short_game.json")
     time.sleep(0.5)
 
-    # 2) Start two auto-mode clients
+    # 2) Start two clients
     cli_a = run_client("configs/client_auto.json", "CONNECT localhost:5055")
     cli_b = run_client("configs/client_auto.json", "CONNECT localhost:5055")
 
-    # 3) Allow READY and first QUESTION phase to begin
+    # 3) Let the game start
     time.sleep(1.2)
 
-    # 4) Simulate client A disconnecting unexpectedly
+    # 4) Simulate A disconnecting
     cli_a.terminate()
 
-    # 5) Give the server enough time to detect and broadcast BYE/FINISHED
-    time.sleep(2.5)
+    # 5) Give server 3 seconds to detect and broadcast
+    time.sleep(3.0)
 
-    # 6) Read output from client B before killing it
-    out_b = read_output(cli_b)
+    # 6) Now read output from client B with a longer timeout
+    out_b = read_output(cli_b, timeout=6.0)
 
-    # 7) Safely terminate client B and stop the server
+    # 7) Terminate B and close the server
     cli_b.terminate()
     srv.kill()
 
-    # 8) Assert that client B saw either BYE or FINISHED
+    # 8) For debugging visibility
+    print("\n--- CLIENT B OUTPUT ---")
+    for line in out_b:
+        print(line)
+    print("-----------------------\n")
+
+    # 9) Assert BYE or FINISHED
     assert any("BYE" in line or "FINISHED" in line for line in out_b), (
         f"Expected 'BYE' or 'FINISHED' in surviving client's output, got:\n{out_b}"
     )

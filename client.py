@@ -216,14 +216,12 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
         print("Connection failed", flush=True)
         return
 
-    # Flags for graceful quit after user types EXIT in 'you' mode
     want_quit = False
     silent = False
-
     send_json(s, {"message_type":"HI", "username":username})
 
     for msg in iter_messages(s):
-        if msg.get("__tick__"):  # heartbeat
+        if msg.get("__tick__"):
             continue
 
         mtype = msg.get("message_type")
@@ -235,36 +233,29 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
 
         elif mtype == "QUESTION":
             if want_quit:
-                # User has chosen to leave; do not answer further questions.
                 continue
-
             trivia = msg.get("trivia_question","")
             short_q = msg.get("short_question","")
             qtype = msg.get("question_type","")
             tlim = float(msg.get("time_limit",1.0))
-
             if trivia and not silent:
                 print(trivia, flush=True)
-
             if mode == "you":
                 ans_line = read_stdin_line(tlim)
                 if ans_line is None or ans_line == "":
                     continue
                 if ans_line.strip().upper() == "EXIT":
-                    # Do NOT hard-exit; go silent and wait for BYE.
                     want_quit = True
                     silent = True
                     continue
                 answer = ans_line.strip()
                 if answer != "":
                     send_json(s, {"message_type":"ANSWER", "answer":answer})
-
             elif mode == "ai":
                 answer = ollama_answer(qtype, short_q, trivia, ollama_cfg, tlim)
                 if answer != "":
                     send_json(s, {"message_type":"ANSWER", "answer":answer})
-
-            else:  # auto
+            else:
                 answer = auto_answer(qtype, short_q)
                 if answer != "":
                     send_json(s, {"message_type":"ANSWER", "answer":answer})
@@ -280,7 +271,10 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
                 if lb: print(lb, flush=True)
 
         elif mtype == "BYE":
-            # Close cleanly and stop reading; no hard exit here.
+            # --- FIX: ensure stdout flush before exit ---
+            print("BYE", flush=True)
+            sys.stdout.flush()
+            time.sleep(0.2)
             try:
                 s.shutdown(socket.SHUT_RDWR)
             except Exception:
@@ -289,14 +283,16 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
                 s.close()
             except Exception:
                 pass
-            break  # leave loop; this client is done
+            break
 
         elif mtype == "FINISHED":
             fs = msg.get("final_standings","")
             if fs and not silent:
                 print(fs, flush=True)
+            print("FINISHED", flush=True)
+            sys.stdout.flush()
+            time.sleep(0.2)
             try:
-                time.sleep(0.1)
                 s.shutdown(socket.SHUT_RDWR)
             except Exception:
                 pass
@@ -304,13 +300,15 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
                 s.close()
             except Exception:
                 pass
-            os._exit(0)
+            break
 
-    # Ensure closed when loop breaks (e.g., after BYE)
+    # --- final safeguard ---
     try:
         s.close()
     except Exception:
         pass
+    sys.stdout.flush()
+    time.sleep(0.1)
 
 
 # ======================================================
@@ -323,7 +321,6 @@ def main():
         die("client.py: Configuration not provided")
 
     cfg = load_config(cfg_path)
-
     mode = cfg.get("client_mode","auto")
     if mode == "ai" and not cfg.get("ollama_config"):
         die("client.py: Missing values for Ollama configuration")
@@ -338,6 +335,7 @@ def main():
 
     username = cfg.get("username","Human")
     run_client(host, port, username, mode, cfg.get("ollama_config"))
+
 
 if __name__ == "__main__":
     main()
