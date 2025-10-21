@@ -3,36 +3,44 @@ import time
 
 def test_client_disconnect():
     """
-    Test that the server correctly handles a client disconnection.
-    It should either broadcast a 'BYE' message to other players,
-    or send a final 'FINISHED' message if all players have left.
+    Validate server behavior when one client disconnects mid-game.
+    Strategy:
+      - Start the server (1 short game).
+      - Start TWO clients (auto mode).
+      - Terminate client A quickly to simulate a sudden disconnect.
+      - Keep client B alive long enough to receive the server broadcast.
+      - Assert that client B saw a 'BYE' (someone left) or 'FINISHED' (all left).
+    Rationale:
+      A disconnected client cannot print messages it never received, so we
+      must assert on another still-alive client.
     """
 
-    # 1. Start the server with a short game configuration
+    # 1) Start server
     srv = run_server("configs/short_game.json")
     time.sleep(0.5)
 
-    # 2. Start one auto-mode client and connect to the server
-    cli = run_client("configs/client_auto.json", "CONNECT localhost:5055")
+    # 2) Start two clients
+    cli_a = run_client("configs/client_auto.json", "CONNECT localhost:5055")
+    cli_b = run_client("configs/client_auto.json", "CONNECT localhost:5055")
 
-    # 3. Wait for the READY and QUESTION phases to start
+    # 3) Allow READY/QUESTION to begin so sockets are fully set up
     time.sleep(1.0)
 
-    # 4. Gracefully terminate the client instead of sending SIGINT
-    #    (SIGINT can interrupt Python's stdout/stderr buffers)
-    cli.terminate()
+    # 4) Simulate A dropping out abruptly
+    cli_a.terminate()
 
-    # 5. Allow some time for the server to detect disconnection
-    #    and broadcast FINISHED or BYE to any remaining players
-    time.sleep(1.0)
+    # 5) Give the server enough time to detect A's disconnect
+    #    and broadcast BYE to remaining players (B)
+    time.sleep(1.2)
 
-    # 6. Read the remaining output from the client process
-    output = read_output(cli)
+    # 6) Stop B AFTER it has had time to print server messages
+    cli_b.terminate()
 
-    # 7. Kill the server after reading client output
+    # 7) Collect B's stdout; kill server afterwards
+    out_b = read_output(cli_b)
     srv.kill()
 
-    # 8. Assert that server messages were received correctly
-    assert any("BYE" in line or "FINISHED" in line for line in output), (
-        f"Expected 'BYE' or 'FINISHED' in client output, but got:\n{output}"
+    # 8) Assert B saw BYE or FINISHED
+    assert any(("BYE" in line) or ("FINISHED" in line) for line in out_b), (
+        f"Expected 'BYE' or 'FINISHED' in surviving client's output, got:\n{out_b}"
     )
