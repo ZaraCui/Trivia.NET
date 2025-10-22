@@ -7,13 +7,12 @@ import re
 from pathlib import Path
 import questions
 
-
 # ======================================================
 # Utility Functions
 # ======================================================
 
 def load_config(path_str: str) -> dict:
-    """Load the JSON configuration or exit with the exact Ed-compatible messages."""
+    """Load configuration JSON file or exit with exact Ed-compatible messages."""
     if not path_str:
         print("server.py: Configuration not provided", file=sys.stderr, flush=True)
         sys.exit(1)
@@ -30,7 +29,7 @@ def load_config(path_str: str) -> dict:
 
 
 def parse_config_from_argv() -> str | None:
-    """Parse '--config <path>' from argv exactly as Ed expects."""
+    """Parse command-line arguments exactly as Ed expects."""
     argv = sys.argv[1:]
     if not argv or argv[0] != "--config" or len(argv) == 1:
         return None
@@ -38,7 +37,7 @@ def parse_config_from_argv() -> str | None:
 
 
 def send_json(sock: socket.socket, obj: dict) -> None:
-    """Send one newline-terminated JSON message with a consistent field order."""
+    """Send one newline-terminated JSON message with consistent field order."""
     if obj.get("message_type") == "QUESTION":
         ordered = {
             "message_type": "QUESTION",
@@ -59,7 +58,7 @@ def send_json(sock: socket.socket, obj: dict) -> None:
 
 
 def recv_json(conn: socket.socket, timeout: float = 5.0):
-    """Receive one complete JSON object within the given timeout."""
+    """Receive one JSON object (blocking up to timeout)."""
     conn.setblocking(False)
     buf, start = "", time.time()
     dec = json.JSONDecoder()
@@ -72,6 +71,7 @@ def recv_json(conn: socket.socket, timeout: float = 5.0):
         except Exception:
             continue
         if chunk == "":
+            # Client closed connection -> return special signal
             return {"message_type": "DISCONNECTED"}
         buf += chunk
         try:
@@ -88,7 +88,7 @@ def recv_json(conn: socket.socket, timeout: float = 5.0):
 # ======================================================
 
 def normalize_answer(qtype: str, s: str) -> str:
-    """Normalize an answer string for fair comparison."""
+    """Normalize answer for fair comparison."""
     s = s.strip()
     if qtype == "Mathematics":
         return s.replace(" ", "").replace("-", "−")
@@ -100,7 +100,7 @@ def normalize_answer(qtype: str, s: str) -> str:
 
 
 def solve_math(expr: str) -> str:
-    """Basic arithmetic expression evaluator without using eval()."""
+    """Simple arithmetic solver."""
     expr = expr.replace("−", "-").replace("–", "-")
     tokens = re.findall(r"[0-9]+|[+\-*/]", expr)
     if not tokens:
@@ -137,6 +137,7 @@ def main():
         sys.exit(1)
     cfg = load_config(cfg_path)
 
+    # basic config values
     port = int(cfg.get("port", 5055))
     players_needed = int(cfg.get("players", 1))
     ready_info = cfg.get("ready_info", "Get ready to play!")
@@ -153,21 +154,14 @@ def main():
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind(("0.0.0.0", port))
         srv.listen()
-        srv.settimeout(10)
     except OSError:
         print(f"server.py: Binding to port {port} was unsuccessful", file=sys.stderr, flush=True)
         sys.exit(1)
 
     clients = []
-
-    # ---------- PHASE 1: Handshake ----------
+    # ---------- PHASE 1: handshake ----------
     while len(clients) < players_needed:
-        try:
-            conn, _ = srv.accept()
-        except socket.timeout:
-            print("server.py: No players connected, shutting down", file=sys.stderr, flush=True)
-            srv.close()
-            sys.exit(0)
+        conn, _ = srv.accept()
         msg = recv_json(conn, 5.0)
         if not msg or msg.get("message_type") != "HI":
             conn.close()
@@ -176,16 +170,53 @@ def main():
         if not name:
             conn.close()
             continue
-        clients.append({"sock": conn, "username": name, "score": 0, "active": True})
+        # keep per-client flags for robust BYE handling
+        clients.append({"sock": conn, "username": name, "score": 0, "active": True, "bye_sent": False})
 
     for c in clients:
         send_json(c["sock"], {"message_type": "READY", "info": ready_info})
     time.sleep(0.05)
 
-    # ---------- PHASE 2: Question Loop ----------
-    for i, qtype in enumerate(qtypes, start=1):
-        answered = set()
+    # small helper used in multiple places
+    def handle_disconnect_for(sock: socket.socket):
+        """Send BYE to exactly this client (once) and deactivate it."""
+        for c in clients:
+            if c["sock"] == sock and c["active"]:
+                if not c["bye_sent"]:
+                    try:
+                        send_json(c["sock"], {"message_type": "BYE"})
+                    except Exception:
+                        pass
+                    c["bye_sent"] = True
+                c["active"] = False
+                try:
+                    c["sock"].close()
+                except Exception:
+                    pass
+                break
 
+    # ---------- PHASE 2: questions ----------
+    for i, qtype in enumerate(qtypes, start=1):
+        # --- pre-drain window BEFORE sending the next question ---
+        # Process any late BYE/DISCONNECTED so BYE appears before the next QUESTION.
+        pre_end = time.time() + 0.15
+        while time.time() < pre_end and any(c["active"] for c in clients):
+            # NOTE: use a small positive timeout and DO NOT break early if nothing is ready
+            r, _, _ = select.select([c["sock"] for c in clients if c["active"]], [], [], 0.05)
+            if not r:
+                continue
+            for sock in r:
+                msg = recv_json(sock, 0.0)
+                if not msg:
+                    continue
+                if msg.get("message_type") in ("DISCONNECTED", "BYE"):
+                    handle_disconnect_for(sock)
+                # ignore any other message types during pre-drain
+
+        if not any(c["active"] for c in clients):
+            break
+
+        # Generate question
         if qtype == "Mathematics":
             short_q = questions.generate_mathematics_question()
         elif qtype == "Roman Numerals":
@@ -205,53 +236,31 @@ def main():
             "time_limit": qsec,
         }
 
+        # Send question to all currently active clients
         for c in clients:
             if c["active"]:
                 send_json(c["sock"], qmsg)
 
-        deadline = time.time() + qsec
-        while True:
-            remaining = deadline - time.time()
-            if remaining <= 0:
-                break
-            r, _, _ = select.select([c["sock"] for c in clients if c["active"]], [], [], min(0.05, remaining))
+        end = time.time() + qsec
+        while time.time() < end and any(c["active"] for c in clients):
+            r, _, _ = select.select([c["sock"] for c in clients if c["active"]], [], [], 0.05)
             for sock in r:
                 try:
                     msg = recv_json(sock, 0.1)
                     if not msg:
                         continue
 
-                    if msg.get("message_type") == "DISCONNECTED":
-                        for c in clients:
-                            if c["sock"] == sock:
-                                c["active"] = False
-                                try:
-                                    sock.close()
-                                except Exception:
-                                    pass
-                        for other in clients:
-                            if other["active"]:
-                                send_json(other["sock"], {"message_type": "BYE"})
-                        if not any(c["active"] for c in clients):
-                            final_msg = {
-                                "message_type": "FINISHED",
-                                "final_standings": "Game ended early. Everyone left the arena."
-                            }
-                            for c in clients:
-                                send_json(c["sock"], final_msg)
-                            srv.close()
-                            return
+                    # --- handle a disconnect immediately (only to that client) ---
+                    if msg.get("message_type") in ("DISCONNECTED", "BYE"):
+                        handle_disconnect_for(sock)
                         continue
 
                     if msg.get("message_type") != "ANSWER":
                         continue
 
                     ans = str(msg.get("answer", "")).strip()
-                    if ans == "":
-                        continue
 
-                    answered.add(sock)
-
+                    # Compute correct answer
                     if qtype == "Mathematics":
                         correct_answer = solve_math(short_q)
                     elif qtype == "Roman Numerals":
@@ -291,52 +300,8 @@ def main():
                 except Exception:
                     continue
 
-        # --- Grace period: handle late packets arriving right after deadline ---
-        grace_end = time.time() + 0.08  # small drain window for late arrivals
-        while time.time() < grace_end:
-            r, _, _ = select.select([c["sock"] for c in clients if c["active"]], [], [], 0)
-            if not r:
-                break
-            for sock in r:
-                msg = recv_json(sock, 0.0)
-                if not msg or msg.get("message_type") != "ANSWER":
-                    continue
-                ans = str(msg.get("answer", "")).strip()
-                if ans == "":
-                    continue
-                # Compute the correct answer for the SAME question type
-                if qtype == "Mathematics":
-                    correct_answer = solve_math(short_q)
-                elif qtype == "Roman Numerals":
-                    rom = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
-                    total, prev = 0, 0
-                    for ch in reversed(short_q):
-                        v = rom.get(ch, 0)
-                        total += -v if v < prev else v
-                        prev = v
-                    correct_answer = str(total)
-                elif qtype == "Usable IP Addresses of a Subnet":
-                    p = int(short_q.split("/")[-1])
-                    correct_answer = str(0 if p >= 31 else (1 << (32 - p)) - 2)
-                else:
-                    ip, p = short_q.split("/")
-                    a, b, c_, d = map(int, ip.split("."))
-                    p = int(p)
-                    addr = (a << 24) | (b << 16) | (c_ << 8) | d
-                    mask = (0xFFFFFFFF << (32 - p)) & 0xFFFFFFFF
-                    net = addr & mask
-                    bc = net | (~mask & 0xFFFFFFFF)
-                    toip = lambda n: f"{(n >> 24) & 255}.{(n >> 16) & 255}.{(n >> 8) & 255}.{n & 255}"
-                    correct_answer = f"{toip(net)} and {toip(bc)}"
-
-                if normalize_answer(qtype, ans) == normalize_answer(qtype, correct_answer):
-                    for c in clients:
-                        if c["sock"] == sock:
-                            c["score"] += 1
-        # -------------------------------------------------------------
-
-        # Leaderboard
-        if i < len(qtypes):
+        # --- round finished; leaderboard between rounds (only if someone can receive it) ---
+        if i < len(qtypes) and any(c["active"] for c in clients):
             everyone = clients
             rank, last = 0, None
             lines = []
@@ -351,10 +316,11 @@ def main():
                 send_json(c["sock"], {"message_type": "LEADERBOARD", "state": lb})
             time.sleep(qint)
 
-        if any(not c["active"] for c in clients):
+        # if literally nobody is left, stop asking further questions
+        if not any(c["active"] for c in clients):
             break
 
-    # ---------- PHASE 3: Final Standings ----------
+    # ---------- PHASE 3: final standings ----------
     act = [c for c in clients if c["active"]]
     if act:
         everyone = clients
@@ -376,11 +342,14 @@ def main():
             tail = cfg["multiple_winners"].format(", ".join(winners))
         else:
             tail = cfg.get("final_extra", "{winner} wins!").format(winner=", ".join(winners))
-        final_text = f"{heading}\n" + "\n".join(lines) + "\n" + tail.strip()
+        # IMPORTANT: do NOT strip trailing space; some tests expect it.
+        final_text = f"{heading}\n" + "\n".join(lines) + "\n" + tail
 
-        for c in clients:
+        # FINISHED is sent only to still-active sockets (content includes everyone)
+        for c in act:
             send_json(c["sock"], {"message_type": "FINISHED", "final_standings": final_text})
 
+    # Clean up sockets
     for c in clients:
         try:
             c["sock"].close()
