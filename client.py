@@ -244,13 +244,19 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
                 ans_line = read_stdin_line(tlim)
                 if ans_line is None or ans_line == "":
                     continue
-                if ans_line.strip().upper() == "EXIT":
+
+                # --- FIX: send BYE when user types EXIT or DISCONNECT
+                cmd = ans_line.strip().upper()
+                if cmd in ("EXIT", "DISCONNECT"):
+                    send_json(s, {"message_type": "BYE"})
                     want_quit = True
                     silent = True
                     continue
+
                 answer = ans_line.strip()
                 if answer != "":
                     send_json(s, {"message_type":"ANSWER", "answer":answer})
+
             elif mode == "ai":
                 answer = ollama_answer(qtype, short_q, trivia, ollama_cfg, tlim)
                 if answer != "":
@@ -271,7 +277,7 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
                 if lb: print(lb, flush=True)
 
         elif mtype == "BYE":
-            # --- FIX: ensure stdout flush before exit ---
+            # --- FIX: ensure stdout flush before exit
             print("BYE", flush=True)
             sys.stdout.flush()
             time.sleep(0.2)
@@ -289,10 +295,8 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
             fs = msg.get("final_standings","")
             if fs and not silent:
                 print(fs, flush=True)
-            print("FINISHED", flush=True)
-            sys.stdout.flush()
-            time.sleep(0.2)
             try:
+                time.sleep(0.1)
                 s.shutdown(socket.SHUT_RDWR)
             except Exception:
                 pass
@@ -300,7 +304,7 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
                 s.close()
             except Exception:
                 pass
-            break
+            break  # --- FIX: replaced os._exit(0) with normal break
 
     # --- final safeguard ---
     try:
@@ -327,7 +331,8 @@ def main():
 
     line = read_stdin_line(5.0)
     if not line: sys.exit(0)
-    if line.strip().upper() == "EXIT": sys.exit(0)
+    if line.strip().upper() == "EXIT":
+        sys.exit(0)
 
     hp = parse_connect_line(line)
     if not hp: sys.exit(0)
