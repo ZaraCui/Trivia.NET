@@ -46,6 +46,7 @@ def send_json(sock: socket.socket, data: dict) -> None:
         pass
 
 def iter_messages(sock: socket.socket):
+    """Read JSON messages separated by newlines, yield each message."""
     buf = bytearray()
     sock.settimeout(0.2)
     while True:
@@ -54,21 +55,23 @@ def iter_messages(sock: socket.socket):
             if not chunk:
                 break
             buf.extend(chunk)
+            # Parse all complete JSON lines before yielding again
+            while True:
+                i = buf.find(b"\n")
+                if i == -1:
+                    break
+                line = buf[:i].strip()
+                del buf[:i+1]
+                if not line:
+                    continue
+                try:
+                    yield json.loads(line.decode("utf-8"))
+                except json.JSONDecodeError:
+                    continue
         except socket.timeout:
+            # Used for heartbeat ticks (no data yet)
             yield {"__tick__": True}
             continue
-        while True:
-            i = buf.find(b"\n")
-            if i == -1:
-                break
-            line = buf[:i].strip()
-            del buf[:i+1]
-            if not line:
-                continue
-            try:
-                yield json.loads(line.decode("utf-8"))
-            except json.JSONDecodeError:
-                continue
 
 
 # ======================================================
@@ -204,6 +207,19 @@ def parse_connect_line(line: str):
     except Exception:
         return None
 
+def poll_stdin_cmd() -> str | None:
+    """Non-blocking check for EXIT/DISCONNECT commands (works in all modes)."""
+    try:
+        r, _, _ = select.select([sys.stdin], [], [], 0)
+    except Exception:
+        return None
+    if not r:
+        return None
+    line = sys.stdin.readline()
+    if not line:
+        return None
+    return line.strip().upper()
+
 
 # ======================================================
 # Core client logic
@@ -217,11 +233,29 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
         return
 
     want_quit = False
+    sent_bye = False  # prevent duplicate BYE messages
     silent = False
+    quit_deadline = 0.0
     send_json(s, {"message_type":"HI", "username":username})
 
     for msg in iter_messages(s):
+        # Check for heartbeat tick (timeout)
         if msg.get("__tick__"):
+            # Non-blocking stdin polling even in auto/ai mode
+            cmd = poll_stdin_cmd()
+            if cmd in ("EXIT", "DISCONNECT"):
+                if not sent_bye:
+                    send_json(s, {"message_type": "BYE"})
+                    sent_bye = True
+                want_quit = True
+                silent = True
+                quit_deadline = time.time() + 0.6
+            if want_quit and time.time() > quit_deadline:
+                try: s.shutdown(socket.SHUT_RDWR)
+                except Exception: pass
+                try: s.close()
+                except Exception: pass
+                break
             continue
 
         mtype = msg.get("message_type")
@@ -244,15 +278,14 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
                 ans_line = read_stdin_line(tlim)
                 if ans_line is None or ans_line == "":
                     continue
-
-                # --- FIX: send BYE when user types EXIT or DISCONNECT
                 cmd = ans_line.strip().upper()
                 if cmd in ("EXIT", "DISCONNECT"):
-                    send_json(s, {"message_type": "BYE"})
+                    if not sent_bye:
+                        send_json(s, {"message_type": "BYE"})
+                        sent_bye = True
                     want_quit = True
                     silent = True
                     continue
-
                 answer = ans_line.strip()
                 if answer != "":
                     send_json(s, {"message_type":"ANSWER", "answer":answer})
@@ -277,7 +310,6 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
                 if lb: print(lb, flush=True)
 
         elif mtype == "BYE":
-            # --- FIX: ensure stdout flush before exit
             print("BYE", flush=True)
             sys.stdout.flush()
             time.sleep(0.2)
@@ -295,6 +327,7 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
             fs = msg.get("final_standings","")
             if fs and not silent:
                 print(fs, flush=True)
+            # Do NOT send BYE here; server will handle game end broadcast
             try:
                 time.sleep(0.1)
                 s.shutdown(socket.SHUT_RDWR)
@@ -304,9 +337,8 @@ def run_client(host: str, port: int, username: str, mode: str, ollama_cfg: dict 
                 s.close()
             except Exception:
                 pass
-            break  # --- FIX: replaced os._exit(0) with normal break
+            break
 
-    # --- final safeguard ---
     try:
         s.close()
     except Exception:
